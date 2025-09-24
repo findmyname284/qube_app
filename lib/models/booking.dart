@@ -1,5 +1,5 @@
 class Booking {
-  final int? booking_id;
+  final String? booking_id;
   final String command_type;
   final int computer_id;
   final DateTime created_at;
@@ -16,7 +16,7 @@ class Booking {
 
   factory Booking.fromJson(Map<String, dynamic> j) {
     return Booking(
-      j['booking_id'] as int?,
+      j['booking_id'] as String?,
       j['command_type'] as String,
       j['computer_id'] as int,
       DateTime.parse(j['created_at'] as String),
