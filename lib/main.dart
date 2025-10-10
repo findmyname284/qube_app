@@ -1,14 +1,20 @@
 import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qube/models/computer.dart';
 import 'package:qube/models/me.dart';
+import 'package:qube/models/tariff.dart';
 import 'package:qube/screens/bookings_screen.dart';
 import 'package:qube/screens/computers_screen.dart';
 import 'package:qube/screens/news_screen.dart';
 import 'package:qube/screens/profile_screen.dart';
 import 'package:qube/screens/splash_screen.dart';
+import 'package:qube/services/api_service.dart';
 import 'package:qube/utils/app_snack.dart';
+import 'package:qube/utils/helper.dart';
+
+final api = ApiService.instance;
 
 void main() => runApp(const QubeApp());
 
@@ -46,7 +52,7 @@ class QubeApp extends StatelessWidget {
         height: 72,
         elevation: 0,
         backgroundColor: Colors.transparent,
-        indicatorColor: colorSchemeDark.primary.withOpacity(.18),
+        indicatorColor: colorSchemeDark.primary.withValues(alpha: 0.18),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
             return IconThemeData(color: colorSchemeDark.primary);
@@ -86,7 +92,13 @@ class QubeApp extends StatelessWidget {
 class MainPage extends StatefulWidget {
   final List<Computer> computers;
   final Profile? profile;
-  const MainPage({super.key, required this.computers, this.profile});
+  final List<Tariff>? tariffs;
+  const MainPage({
+    super.key,
+    required this.computers,
+    this.profile,
+    this.tariffs,
+  });
 
   @override
   State<MainPage> createState() => _MainPageState();
@@ -111,24 +123,25 @@ class _MainPageState extends State<MainPage> {
   @override
   void dispose() {
     _pageController.dispose();
+    api.close();
     super.dispose();
   }
 
   void _onMapModeChanged(bool isMap) {
-    setState(() {
+    setStateSafe(() {
       _isMapView = isMap;
       _disableSwipe = isMap;
     });
   }
 
   void _onFabVisibilityChanged(bool visible) {
-    setState(() {
+    setStateSafe(() {
       _showFab = visible;
     });
   }
 
   void _onLoggedIn(Profile p) {
-    setState(() {
+    setStateSafe(() {
       _profile = p;
       if (_currentIndex >= 3) {
         _currentIndex = 3;
@@ -143,7 +156,7 @@ class _MainPageState extends State<MainPage> {
   }
 
   void _onLoggedOut() {
-    setState(() {
+    setStateSafe(() {
       _profile = null;
       if (_currentIndex >= 2) {
         _currentIndex = 0;
@@ -158,7 +171,7 @@ class _MainPageState extends State<MainPage> {
   }
 
   void _toggleMapView() {
-    setState(() {
+    setStateSafe(() {
       _isMapView = !_isMapView;
       _disableSwipe = _isMapView;
     });
@@ -178,7 +191,7 @@ class _MainPageState extends State<MainPage> {
             const NewsScreen(),
             const BookingsScreen(),
             ProfileScreen(
-              tariffs: const [],
+              tariffs: widget.tariffs,
               profile: widget.profile,
               onLoggedIn: _onLoggedIn,
               onLoggedOut: _onLoggedOut,
@@ -194,7 +207,7 @@ class _MainPageState extends State<MainPage> {
             ),
             const NewsScreen(),
             ProfileScreen(
-              tariffs: const [],
+              tariffs: widget.tariffs,
               onLoggedIn: _onLoggedIn,
               onLoggedOut: _onLoggedOut,
             ),
@@ -261,7 +274,7 @@ class _MainPageState extends State<MainPage> {
                 : const BouncingScrollPhysics(
                     parent: AlwaysScrollableScrollPhysics(),
                   ),
-            onPageChanged: (index) => setState(() {
+            onPageChanged: (index) => setStateSafe(() {
               _currentIndex = index;
               if (index != 0) {
                 _disableSwipe = false;
@@ -302,7 +315,7 @@ class _MainPageState extends State<MainPage> {
                   selectedIndex: _currentIndex,
                   destinations: navDestinations,
                   onDestinationSelected: (index) {
-                    setState(() => _currentIndex = index);
+                    setStateSafe(() => _currentIndex = index);
                     _pageController.animateToPage(
                       index,
                       duration: const Duration(milliseconds: 260),

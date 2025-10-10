@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:qube/screens/login_screen.dart';
 import 'package:qube/services/api_service.dart';
+import 'package:qube/services/auth_storage.dart';
+import 'package:qube/utils/helper.dart';
 import 'package:qube/widgets/qubebar.dart';
 import 'package:qube/utils/app_snack.dart';
 
@@ -25,7 +27,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _agreeWithTerms = false;
 
   void _validateForm() {
-    setState(() {});
+    setStateSafe(() {});
   }
 
   void _register() async {
@@ -39,17 +41,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-    setState(() => _isLoading = true);
+    setStateSafe(() => _isLoading = true);
 
     try {
-      await Future.delayed(const Duration(seconds: 2));
+      //   await Future.delayed(const Duration(seconds: 2));
+      final token = await api.register(
+        _usernameController.text,
+        // _emailController.text,
+        _passwordController.text,
+      );
 
       if (mounted) {
-        _showSuccessAnimation();
+        setStateSafe(() => _isLoading = false);
+      }
+
+      if (token.token.isNotEmpty) {
+        AuthStorage.saveToken(token.token);
+        if (mounted) {
+          _showSuccessAnimation();
+        }
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setStateSafe(() => _isLoading = false);
         _showErrorDialog(e.toString());
       }
     }
@@ -74,7 +88,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF00B894).withOpacity(0.4),
+                    color: const Color(0xFF00B894).withValues(alpha: 0.4),
                     blurRadius: 20,
                     spreadRadius: 5,
                   ),
@@ -198,7 +212,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF00B894).withOpacity(0.3),
+                        color: const Color(0xFF00B894).withValues(alpha: 0.3),
                         blurRadius: 20,
                         spreadRadius: 5,
                       ),
@@ -234,11 +248,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 Container(
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF161821).withOpacity(0.8),
+                    color: const Color(0xFF161821).withValues(alpha: 0.8),
                     borderRadius: BorderRadius.circular(24),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
+                        color: Colors.black.withValues(alpha: 0.3),
                         blurRadius: 20,
                         offset: const Offset(0, 10),
                       ),
@@ -288,7 +302,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           label: "Пароль",
                           obscureText: _obscurePassword,
                           onToggle: () {
-                            setState(
+                            setStateSafe(
                               () => _obscurePassword = !_obscurePassword,
                             );
                           },
@@ -311,7 +325,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           label: "Подтвердите пароль",
                           obscureText: _obscureConfirmPassword,
                           onToggle: () {
-                            setState(
+                            setStateSafe(
                               () => _obscureConfirmPassword =
                                   !_obscureConfirmPassword,
                             );
@@ -335,7 +349,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             Checkbox(
                               value: _agreeWithTerms,
                               onChanged: (value) {
-                                setState(
+                                setStateSafe(
                                   () => _agreeWithTerms = value ?? false,
                                 );
                               },
@@ -344,7 +358,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ) {
                                 return _agreeWithTerms
                                     ? const Color(0xFF00B894)
-                                    : Colors.grey.withOpacity(0.3);
+                                    : Colors.grey.withValues(alpha: 0.3);
                               }),
                             ),
                             Expanded(
@@ -381,8 +395,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   )
                                 : LinearGradient(
                                     colors: [
-                                      Colors.grey.withOpacity(0.5),
-                                      Colors.grey.withOpacity(0.3),
+                                      Colors.grey.withValues(alpha: 0.5),
+                                      Colors.grey.withValues(alpha: 0.3),
                                     ],
                                   ),
                             borderRadius: BorderRadius.circular(16),
@@ -391,7 +405,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     BoxShadow(
                                       color: const Color(
                                         0xFF00B894,
-                                      ).withOpacity(0.4),
+                                      ).withValues(alpha: 0.4),
                                       blurRadius: 15,
                                       offset: const Offset(0, 5),
                                     ),
@@ -480,7 +494,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         gradient: LinearGradient(
           colors: [
             const Color(0xFF1E1F2E),
-            const Color(0xFF1E1F2E).withOpacity(0.8),
+            const Color(0xFF1E1F2E).withValues(alpha: 0.8),
           ],
         ),
       ),
@@ -494,7 +508,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           prefixIcon: Container(
             margin: const EdgeInsets.only(right: 12),
             decoration: BoxDecoration(
-              color: const Color(0xFF00B894).withOpacity(0.2),
+              color: const Color(0xFF00B894).withValues(alpha: 0.2),
               borderRadius: const BorderRadius.horizontal(
                 left: Radius.circular(16),
               ),
@@ -523,7 +537,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         gradient: LinearGradient(
           colors: [
             const Color(0xFF1E1F2E),
-            const Color(0xFF1E1F2E).withOpacity(0.8),
+            const Color(0xFF1E1F2E).withValues(alpha: 0.8),
           ],
         ),
       ),
@@ -537,7 +551,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           prefixIcon: Container(
             margin: const EdgeInsets.only(right: 12),
             decoration: BoxDecoration(
-              color: const Color(0xFF00B894).withOpacity(0.2),
+              color: const Color(0xFF00B894).withValues(alpha: 0.2),
               borderRadius: const BorderRadius.horizontal(
                 left: Radius.circular(16),
               ),

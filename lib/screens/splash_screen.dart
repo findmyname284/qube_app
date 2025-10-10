@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:qube/main.dart';
 import 'package:qube/models/computer.dart';
 import 'package:qube/models/me.dart';
+import 'package:qube/models/tariff.dart';
 import 'package:qube/services/api_service.dart';
+import 'package:qube/utils/helper.dart';
 
 final api = ApiService.instance;
 
@@ -50,7 +52,7 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _loadData() async {
-    setState(() {
+    setStateSafe(() {
       _loading = true;
       _error = false;
       _msg = "Подключаемся к серверу...";
@@ -58,24 +60,32 @@ class _SplashScreenState extends State<SplashScreen>
 
     try {
       // параллельная загрузка
-      final (List<Computer> computers, Profile? profile) = await (
+      final (
+        List<Computer> computers,
+        Profile? profile,
+        List<Tariff> tariffs,
+      ) = await (
         api.fetchComputers(),
         api.getProfile(),
+        api.fetchTariffs(),
       ).wait;
 
       if (!mounted) return;
-      // маленькая пауза для красоты/плавности
       await Future.delayed(const Duration(milliseconds: 200));
 
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => MainPage(computers: computers, profile: profile),
+          builder: (_) => MainPage(
+            computers: computers,
+            profile: profile,
+            tariffs: tariffs,
+          ),
         ),
       );
     } catch (e) {
-      if (!mounted) return;
-      setState(() {
+      setStateSafe(() {
         _loading = false;
         _error = true;
         _msg =
@@ -171,14 +181,16 @@ class _SplashScreenState extends State<SplashScreen>
                           margin: const EdgeInsets.only(top: 4),
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF1E1F2E).withOpacity(0.8),
+                            color: const Color(
+                              0xFF1E1F2E,
+                            ).withValues(alpha: 0.8),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: Colors.white.withOpacity(0.08),
+                              color: Colors.white.withValues(alpha: 0.08),
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.25),
+                                color: Colors.black.withValues(alpha: 0.25),
                                 blurRadius: 10,
                                 offset: const Offset(0, 6),
                               ),
@@ -265,9 +277,9 @@ class _StatusPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.10),
+        color: Colors.white.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

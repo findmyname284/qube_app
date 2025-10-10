@@ -1,6 +1,7 @@
 // screens/forgot_password_screen.dart
 import 'package:flutter/material.dart';
 import 'package:qube/services/api_service.dart';
+import 'package:qube/utils/helper.dart';
 import 'package:qube/widgets/qubebar.dart';
 
 final api = ApiService.instance;
@@ -20,20 +21,20 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   String? _userEmail;
 
   void _validateForm() {
-    setState(() {});
+    setStateSafe(() {});
   }
 
   void _sendResetInstructions() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isLoading = true);
+    setStateSafe(() => _isLoading = true);
 
     try {
       // Имитация API вызова
       await Future.delayed(const Duration(seconds: 2));
 
       if (mounted) {
-        setState(() {
+        setStateSafe(() {
           _isEmailSent = true;
           _userEmail = _emailController.text;
         });
@@ -41,7 +42,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setStateSafe(() => _isLoading = false);
         _showErrorDialog(e.toString());
       }
     }
@@ -66,7 +67,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF00B894).withOpacity(0.4),
+                    color: const Color(0xFF00B894).withValues(alpha: 0.4),
                     blurRadius: 20,
                     spreadRadius: 5,
                   ),
@@ -131,7 +132,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   void _resendInstructions() {
-    setState(() {
+    setStateSafe(() {
       _isEmailSent = false;
       _isLoading = false;
     });
@@ -196,7 +197,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                             (_isEmailSent
                                     ? const Color(0xFF00B894)
                                     : const Color(0xFFFF9F43))
-                                .withOpacity(0.3),
+                                .withValues(alpha: 0.3),
                         blurRadius: 20,
                         spreadRadius: 5,
                       ),
@@ -249,11 +250,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   Container(
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF161821).withOpacity(0.8),
+                      color: const Color(0xFF161821).withValues(alpha: 0.8),
                       borderRadius: BorderRadius.circular(24),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.3),
+                          color: Colors.black.withValues(alpha: 0.3),
                           blurRadius: 20,
                           offset: const Offset(0, 10),
                         ),
@@ -270,7 +271,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                               gradient: LinearGradient(
                                 colors: [
                                   const Color(0xFF1E1F2E),
-                                  const Color(0xFF1E1F2E).withOpacity(0.8),
+                                  const Color(
+                                    0xFF1E1F2E,
+                                  ).withValues(alpha: 0.8),
                                 ],
                               ),
                             ),
@@ -287,7 +290,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                                   decoration: BoxDecoration(
                                     color: const Color(
                                       0xFFFF9F43,
-                                    ).withOpacity(0.2),
+                                    ).withValues(alpha: 0.2),
                                     borderRadius: const BorderRadius.horizontal(
                                       left: Radius.circular(16),
                                     ),
@@ -331,8 +334,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                                     )
                                   : LinearGradient(
                                       colors: [
-                                        Colors.grey.withOpacity(0.5),
-                                        Colors.grey.withOpacity(0.3),
+                                        Colors.grey.withValues(alpha: 0.5),
+                                        Colors.grey.withValues(alpha: 0.3),
                                       ],
                                     ),
                               borderRadius: BorderRadius.circular(16),
@@ -341,7 +344,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                                       BoxShadow(
                                         color: const Color(
                                           0xFFFF9F43,
-                                        ).withOpacity(0.4),
+                                        ).withValues(alpha: 0.4),
                                         blurRadius: 15,
                                         offset: const Offset(0, 5),
                                       ),
@@ -389,9 +392,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1E1F2E).withOpacity(0.5),
+                      color: const Color(0xFF1E1F2E).withValues(alpha: 0.5),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.1),
+                      ),
                     ),
                     child: const Row(
                       children: [
@@ -418,11 +423,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   Container(
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF161821).withOpacity(0.8),
+                      color: const Color(0xFF161821).withValues(alpha: 0.8),
                       borderRadius: BorderRadius.circular(24),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.3),
+                          color: Colors.black.withValues(alpha: 0.3),
                           blurRadius: 20,
                           offset: const Offset(0, 10),
                         ),
@@ -492,7 +497,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                                   BoxShadow(
                                     color: const Color(
                                       0xFFFF9F43,
-                                    ).withOpacity(0.4),
+                                    ).withValues(alpha: 0.4),
                                     blurRadius: 15,
                                     offset: const Offset(0, 5),
                                   ),
@@ -543,9 +548,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1E1F2E).withOpacity(0.5),
+                      color: const Color(0xFF1E1F2E).withValues(alpha: 0.5),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.1),
+                      ),
                     ),
                     child: const Column(
                       children: [

@@ -3,6 +3,7 @@ import 'package:qube/models/booking.dart';
 import 'package:qube/services/api_service.dart';
 import 'package:qube/utils/app_snack.dart';
 import 'package:qube/widgets/qubebar.dart';
+import 'package:qube/utils/helper.dart';
 
 final api = ApiService.instance;
 
@@ -28,16 +29,15 @@ class _BookingsScreenState extends State<BookingsScreen> {
 
   Future<void> _loadBookings({bool showLoader = true}) async {
     if (showLoader) {
-      setState(() {
+      setStateSafe(() {
         _isLoading = true;
         _error = null;
       });
-    } else {}
+    }
 
     try {
       final bookings = await api.fetchBookings();
-      if (!mounted) return;
-      setState(() {
+      setStateSafe(() {
         _bookings
           ..clear()
           ..addAll(bookings);
@@ -45,18 +45,14 @@ class _BookingsScreenState extends State<BookingsScreen> {
         _cancellingIds.clear();
       });
     } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = e.toString());
+      setStateSafe(() => _error = e.toString());
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-      });
+      setStateSafe(() => _isLoading = false);
     }
   }
 
   Future<void> _cancelBooking(Booking booking) async {
-    if (booking.command_type == 'cancel') return;
+    if (booking.commandType == 'cancel') return;
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -81,7 +77,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
           ],
         ),
         content: Text(
-          'Вы действительно хотите отменить бронь компьютера #${booking.computer_id}?',
+          'Вы действительно хотите отменить бронь компьютера #${booking.computerId}?',
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -99,11 +95,14 @@ class _BookingsScreenState extends State<BookingsScreen> {
 
     if (confirmed != true) return;
 
-    final cancelKey = booking.booking_id ?? booking.computer_id.toString();
-    setState(() => _cancellingIds.add(cancelKey));
+    final cancelKey = booking.bookingId ?? booking.computerId.toString();
+    setStateSafe(() => _cancellingIds.add(cancelKey));
 
     try {
-      await api.booking(booking.computer_id, 'release');
+      await api.cancelBookingById(
+        computerId: booking.computerId,
+        bookingId: booking.bookingId!,
+      );
       if (!mounted) return;
       AppSnack.show(
         context,
@@ -118,7 +117,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
         message: 'Ошибка отмены: $e',
         type: AppSnackType.error,
       );
-      setState(() => _cancellingIds.remove(cancelKey));
+      setStateSafe(() => _cancellingIds.remove(cancelKey));
     }
   }
 
@@ -129,17 +128,6 @@ class _BookingsScreenState extends State<BookingsScreen> {
       appBar: QubeAppBar(
         title: 'Мои брони',
         icon: Icons.book_online,
-        // bottom: PreferredSize(
-        //   preferredSize: const Size.fromHeight(2.5),
-        //   child: AnimatedContainer(
-        //     duration: const Duration(milliseconds: 250),
-        //     height: _isRefreshing ? 2.5 : 0,
-        //     child: _isRefreshing
-        //         ? const LinearProgressIndicator(
-        //             backgroundColor: Colors.transparent, minHeight: 2.5)
-        //         : const SizedBox.shrink(),
-        //   ),
-        // ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -204,11 +192,11 @@ class _BookingsScreenState extends State<BookingsScreen> {
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
         final booking = _bookings[index];
-        final cancelKey = booking.booking_id ?? booking.computer_id.toString();
+        final cancelKey = booking.bookingId ?? booking.computerId.toString();
         return _BookingCard(
           key: ValueKey(
-            booking.booking_id ??
-                'pc-${booking.computer_id}-${booking.command_type}-${booking.created_at.microsecondsSinceEpoch}',
+            booking.bookingId ??
+                'pc-${booking.computerId}-${booking.commandType}-${booking.createdAt.microsecondsSinceEpoch}',
           ),
           booking: booking,
           isCancelling: _cancellingIds.contains(cancelKey),
@@ -257,12 +245,12 @@ class _StatusView extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
-            color: const Color(0xFF1E1F2E).withOpacity(0.6),
+            color: const Color(0xFF1E1F2E).withValues(alpha: .6),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withOpacity(0.08)),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.25),
+                color: Colors.black.withValues(alpha: 0.25),
                 blurRadius: 10,
                 offset: const Offset(0, 6),
               ),
@@ -333,9 +321,9 @@ class _BookingCardSkeleton extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1F2E).withOpacity(0.6),
+        color: const Color(0xFF1E1F2E).withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: Row(
         children: [
@@ -343,7 +331,7 @@ class _BookingCardSkeleton extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.10),
+              color: Colors.white.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(12),
             ),
           ),
@@ -369,7 +357,7 @@ class _BookingCardSkeleton extends StatelessWidget {
     child: Container(
       height: height,
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.08),
+        color: Colors.white.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(8),
       ),
     ),
@@ -379,7 +367,7 @@ class _BookingCardSkeleton extends StatelessWidget {
     width: w,
     height: h,
     decoration: BoxDecoration(
-      color: Colors.white.withOpacity(0.08),
+      color: Colors.white.withValues(alpha: 0.08),
       borderRadius: BorderRadius.circular(999),
     ),
   );
@@ -400,7 +388,7 @@ class _BookingCard extends StatelessWidget {
   });
 
   Color _statusColor() {
-    switch (booking.command_type) {
+    switch (booking.commandType) {
       case 'book':
         return const Color(0xFF00B894); // зелёный
       case 'cancel':
@@ -410,9 +398,23 @@ class _BookingCard extends StatelessWidget {
     }
   }
 
-  String _title() => 'Бронь PC #${booking.computer_id}';
-  String _createdShort() {
-    final d = booking.created_at.toLocal();
+  String _title() => 'Бронь PC #${booking.computerId}';
+  String _createdShortCreatedAt() {
+    final d = booking.createdAt.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    // короткий формат: 24.09.25 13:42
+    return '${two(d.day)}.${two(d.month)}.${d.year % 100} ${two(d.hour)}:${two(d.minute)}';
+  }
+
+  String _createdShortStartAt() {
+    final d = booking.start.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    // короткий формат: 24.09.25 13:42
+    return '${two(d.day)}.${two(d.month)}.${d.year % 100} ${two(d.hour)}:${two(d.minute)}';
+  }
+
+  String _createdShortEndAt() {
+    final d = booking.end.toLocal();
     String two(int n) => n.toString().padLeft(2, '0');
     // короткий формат: 24.09.25 13:42
     return '${two(d.day)}.${two(d.month)}.${d.year % 100} ${two(d.hour)}:${two(d.minute)}';
@@ -425,7 +427,7 @@ class _BookingCard extends StatelessWidget {
         final color = _statusColor();
         final isCompact = c.maxWidth < 360; // переключатель компоновки
 
-        final idChip = (booking.booking_id != null)
+        final idChip = (booking.bookingId != null)
             ? Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
@@ -439,7 +441,7 @@ class _BookingCard extends StatelessWidget {
                   ), // 0.08 * 255 ≈ 20
                 ),
                 child: Text(
-                  '#${booking.booking_id}',
+                  '#${booking.bookingId}',
                   style: const TextStyle(color: Colors.white70, fontSize: 12),
                   overflow: TextOverflow.fade,
                   softWrap: false,
@@ -447,7 +449,7 @@ class _BookingCard extends StatelessWidget {
               )
             : null;
 
-        final cancelBtn = (booking.command_type != 'cancel')
+        final cancelBtn = (booking.commandType != 'cancel')
             ? SizedBox(
                 height: 40,
                 width: isCompact ? double.infinity : null,
@@ -498,12 +500,12 @@ class _BookingCard extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: const Color(0xFF1E1F2E).withOpacity(0.6),
+                color: const Color(0xFF1E1F2E).withValues(alpha: 0.6),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white.withOpacity(0.08)),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.25),
+                    color: Colors.black.withValues(alpha: 0.25),
                     blurRadius: 8,
                     offset: const Offset(0, 4),
                   ),
@@ -517,11 +519,11 @@ class _BookingCard extends StatelessWidget {
                     width: 44,
                     height: 44,
                     decoration: BoxDecoration(
-                      color: color.withOpacity(0.18),
+                      color: color.withValues(alpha: 0.18),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
-                      booking.command_type == 'cancel'
+                      booking.commandType == 'cancel'
                           ? Icons.cancel
                           : Icons.schedule_send,
                       color: color,
@@ -588,7 +590,53 @@ class _BookingCard extends StatelessWidget {
                             const SizedBox(width: 6),
                             Flexible(
                               child: Text(
-                                _createdShort(),
+                                _createdShortCreatedAt(),
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 13,
+                                ),
+                                softWrap: false,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            Text(
+                              'Начало:',
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                _createdShortStartAt(),
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 13,
+                                ),
+                                softWrap: false,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            Text(
+                              'Конец:',
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                _createdShortEndAt(),
                                 style: const TextStyle(
                                   color: Colors.white70,
                                   fontSize: 13,
@@ -609,7 +657,6 @@ class _BookingCard extends StatelessWidget {
                     ),
                   ),
 
-                  // кнопка справа — только если хватает места
                   if (!isCompact) ...[
                     const SizedBox(width: 12),
                     cancelBtn ?? const SizedBox.shrink(),

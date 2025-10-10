@@ -1,17 +1,21 @@
 class Booking {
-  final String? booking_id;
-  final String command_type;
-  final int computer_id;
-  final DateTime created_at;
-  final int workstation_id;
+  final String? bookingId;
+  final String commandType;
+  final int computerId;
+  final DateTime createdAt;
+  final int workstationId;
+  final DateTime start;
+  final DateTime end;
   //   final Map<String, dynamic>? payload;
 
   Booking(
-    this.booking_id,
-    this.command_type,
-    this.computer_id,
-    this.created_at,
-    this.workstation_id,
+    this.bookingId,
+    this.commandType,
+    this.computerId,
+    this.createdAt,
+    this.workstationId,
+    this.start,
+    this.end,
   );
 
   factory Booking.fromJson(Map<String, dynamic> j) {
@@ -21,6 +25,8 @@ class Booking {
       j['computer_id'] as int,
       DateTime.parse(j['created_at'] as String),
       j['workstation_id'] as int,
+      DateTime.parse(j['start'] as String).toLocal(),
+      DateTime.parse(j['end'] as String).toLocal(),
     );
   }
 }

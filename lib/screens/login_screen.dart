@@ -4,6 +4,7 @@ import 'package:qube/screens/forgot_password_screen.dart';
 import 'package:qube/screens/register_screen.dart';
 import 'package:qube/services/api_service.dart';
 import 'package:qube/services/auth_storage.dart';
+import 'package:qube/utils/helper.dart';
 import 'package:qube/widgets/qubebar.dart';
 
 final api = ApiService.instance;
@@ -24,7 +25,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isFormValid = false;
 
   void _validateForm() {
-    setState(() {
+    setStateSafe(() {
       _isFormValid =
           _emailController.text.isNotEmpty &&
           _passwordController.text.isNotEmpty;
@@ -34,7 +35,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void _login() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isLoading = true);
+    setStateSafe(() => _isLoading = true);
 
     try {
       UserToken userToken = await api.login(
@@ -49,7 +50,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setStateSafe(() => _isLoading = false);
         _showErrorDialog(e.toString());
       }
     }
@@ -74,7 +75,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF00B894).withOpacity(0.4),
+                    color: const Color(0xFF00B894).withValues(alpha: 0.4),
                     blurRadius: 20,
                     spreadRadius: 5,
                   ),
@@ -184,7 +185,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF6C5CE7).withOpacity(0.3),
+                        color: const Color(0xFF6C5CE7).withValues(alpha: 0.3),
                         blurRadius: 20,
                         spreadRadius: 5,
                       ),
@@ -221,11 +222,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 Container(
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF161821).withOpacity(0.8),
+                    color: const Color(0xFF161821).withValues(alpha: 0.8),
                     borderRadius: BorderRadius.circular(24),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
+                        color: Colors.black.withValues(alpha: 0.3),
                         blurRadius: 20,
                         offset: const Offset(0, 10),
                       ),
@@ -242,7 +243,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             gradient: LinearGradient(
                               colors: [
                                 const Color(0xFF1E1F2E),
-                                const Color(0xFF1E1F2E).withOpacity(0.8),
+                                const Color(0xFF1E1F2E).withValues(alpha: 0.8),
                               ],
                             ),
                           ),
@@ -262,7 +263,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 decoration: BoxDecoration(
                                   color: const Color(
                                     0xFF6C5CE7,
-                                  ).withOpacity(0.2),
+                                  ).withValues(alpha: 0.2),
                                   borderRadius: const BorderRadius.horizontal(
                                     left: Radius.circular(16),
                                   ),
@@ -292,7 +293,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             gradient: LinearGradient(
                               colors: [
                                 const Color(0xFF1E1F2E),
-                                const Color(0xFF1E1F2E).withOpacity(0.8),
+                                const Color(0xFF1E1F2E).withValues(alpha: 0.8),
                               ],
                             ),
                           ),
@@ -313,7 +314,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 decoration: BoxDecoration(
                                   color: const Color(
                                     0xFF6C5CE7,
-                                  ).withOpacity(0.2),
+                                  ).withValues(alpha: 0.2),
                                   borderRadius: const BorderRadius.horizontal(
                                     left: Radius.circular(16),
                                   ),
@@ -331,7 +332,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   color: Colors.white70,
                                 ),
                                 onPressed: () {
-                                  setState(
+                                  setStateSafe(
                                     () => _obscurePassword = !_obscurePassword,
                                   );
                                 },
@@ -363,8 +364,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                   )
                                 : LinearGradient(
                                     colors: [
-                                      Colors.grey.withOpacity(0.5),
-                                      Colors.grey.withOpacity(0.3),
+                                      Colors.grey.withValues(alpha: 0.5),
+                                      Colors.grey.withValues(alpha: 0.3),
                                     ],
                                   ),
                             borderRadius: BorderRadius.circular(16),
@@ -373,7 +374,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     BoxShadow(
                                       color: const Color(
                                         0xFF6C5CE7,
-                                      ).withOpacity(0.4),
+                                      ).withValues(alpha: 0.4),
                                       blurRadius: 15,
                                       offset: const Offset(0, 5),
                                     ),

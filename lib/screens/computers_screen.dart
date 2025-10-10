@@ -1,9 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:qube/models/computer.dart';
+import 'package:qube/models/tariff.dart';
 import 'package:qube/services/api_service.dart';
 import 'package:qube/utils/app_snack.dart';
 import 'package:qube/widgets/qubebar.dart';
+import 'package:qube/widgets/computer_card.dart';
+import 'package:qube/widgets/computer_marker.dart';
+import 'package:qube/widgets/computer_details_sheet.dart';
+import 'package:qube/widgets/duration_slider.dart';
+import 'package:qube/widgets/list_skeleton.dart';
+import 'package:qube/utils/date_utils.dart';
+import 'package:qube/models/booking_models.dart';
+import 'package:qube/widgets/time_picker_clock.dart';
+import 'package:qube/utils/helper.dart';
 
 final api = ApiService.instance;
 
@@ -39,6 +49,9 @@ class _ComputersScreenState extends State<ComputersScreen>
   bool isLoading = true;
   bool isRefreshing = false;
   late List<Computer> _computers;
+
+  static const int _maxHours = 12;
+  static const Duration _rollingWindow = Duration(hours: 24);
 
   @override
   void initState() {
@@ -76,7 +89,7 @@ class _ComputersScreenState extends State<ComputersScreen>
   void didUpdateWidget(covariant ComputersScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.computers != widget.computers) {
-      setState(() {
+      setStateSafe(() {
         _computers = widget.computers;
         isLoading = _computers.isEmpty;
       });
@@ -88,19 +101,19 @@ class _ComputersScreenState extends State<ComputersScreen>
   void dispose() {
     _scrollController.removeListener(_scrollListener);
     _scrollController.dispose();
+    _sheetController.dispose();
     super.dispose();
   }
 
   // ---------- DATA LOADING ----------
 
   Future<void> _refreshInitial() async {
-    setState(() => isLoading = true);
+    setStateSafe(() => isLoading = true);
     try {
       final list = await api.fetchComputers();
-      if (!mounted) return;
-      setState(() => _computers = list);
+      setStateSafe(() => _computers = list);
     } finally {
-      if (mounted) setState(() => isLoading = false);
+      if (mounted) setStateSafe(() => isLoading = false);
     }
   }
 
@@ -116,7 +129,7 @@ class _ComputersScreenState extends State<ComputersScreen>
 
   Future<void> _refresh() async {
     if (isRefreshing) return;
-    setState(() => isRefreshing = true);
+    setStateSafe(() => isRefreshing = true);
     try {
       final list = await api.fetchComputers();
       if (!mounted) return;
@@ -129,16 +142,13 @@ class _ComputersScreenState extends State<ComputersScreen>
         type: AppSnackType.error,
       );
     } finally {
-      if (mounted) setState(() => isRefreshing = false);
+      if (mounted) setStateSafe(() => isRefreshing = false);
     }
   }
 
-  // Мягкое применение обновлений (без «мигания» списка)
   void _applyDiffUpdate(List<Computer> fresh) {
-    // Сортируем по id, чтобы порядок был стабильным, иначе лишние анимации
     fresh.sort((a, b) => a.id.compareTo(b.id));
 
-    // Обновляем только если реально что-то поменялось
     final sameLength = fresh.length == _computers.length;
     bool identicalLists = sameLength;
     if (sameLength) {
@@ -159,7 +169,7 @@ class _ComputersScreenState extends State<ComputersScreen>
     }
 
     if (!identicalLists) {
-      setState(() => _computers = fresh);
+      setStateSafe(() => _computers = fresh);
     }
   }
 
@@ -203,7 +213,7 @@ class _ComputersScreenState extends State<ComputersScreen>
 
   Widget _buildListView() {
     if (isLoading) {
-      return _ListSkeleton();
+      return const ListSkeleton();
     }
 
     if (_computers.isEmpty) {
@@ -225,7 +235,7 @@ class _ComputersScreenState extends State<ComputersScreen>
       child: AnimationLimiter(
         child: ListView.builder(
           controller: _scrollController,
-          padding: EdgeInsets.only(
+          padding: const EdgeInsets.only(
             bottom: kBottomNavigationBarHeight + 32,
             top: 8,
           ),
@@ -238,7 +248,7 @@ class _ComputersScreenState extends State<ComputersScreen>
               child: SlideAnimation(
                 verticalOffset: 36.0,
                 child: FadeInAnimation(
-                  child: _ComputerCard(
+                  child: ComputerCard(
                     key: ValueKey(comp.id),
                     comp: comp,
                     onTap: () => _showComputerDetails(context, comp),
@@ -289,7 +299,7 @@ class _ComputersScreenState extends State<ComputersScreen>
               child: Stack(
                 children: _computers
                     .map(
-                      (c) => _AnimatedMarker(
+                      (c) => ComputerMarker(
                         key: ValueKey(c.id),
                         comp: c,
                         cellSize: cellSize,
@@ -302,7 +312,6 @@ class _ComputersScreenState extends State<ComputersScreen>
             ),
           ),
         ),
-        // тонкая полоска прогресса сверху
         Positioned(top: 0, left: 0, right: 0, child: _buildTopProgress()),
       ],
     );
@@ -321,181 +330,295 @@ class _ComputersScreenState extends State<ComputersScreen>
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (context) {
-        return FadeTransition(
-          opacity: _fade,
-          child: SlideTransition(
-            position: _slide,
-            child: FutureBuilder<Computer>(
-              future: api.fetchComputer(comp.id),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const SizedBox(
-                    height: 250,
-                    child: Center(
-                      child: CircularProgressIndicator(color: Colors.white70),
-                    ),
-                  );
-                }
-                if (snapshot.hasError) {
-                  return SizedBox(
-                    height: 250,
-                    child: Center(
-                      child: Text(
-                        "Ошибка загрузки: ${snapshot.error}",
-                        style: const TextStyle(color: Colors.white70),
+        return ComputerDetailsSheet(
+          fade: _fade,
+          slide: _slide,
+          computer: comp,
+          statusColor: _statusColor(comp.status),
+          onBook: _bookComputer,
+          onUnbook: _unbookComputer,
+        );
+      },
+    );
+  }
+
+  // ---------- NEW: TARIF PICKER ----------
+
+  Future<Tariff?> _pickTariff(Computer comp) async {
+    return showModalBottomSheet<Tariff>(
+      context: context,
+      backgroundColor: const Color(0xFF1E1F2E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      isScrollControlled: true,
+      builder: (sheetCtx) {
+        Tariff? selected;
+
+        // ограничим высоту, чтобы список не рос бесконечно
+        final maxHeight = MediaQuery.of(sheetCtx).size.height * 0.66;
+
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 16,
+              bottom: MediaQuery.of(sheetCtx).viewInsets.bottom + 20,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Text(
+                      "Выбор тарифа",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 18,
                       ),
                     ),
-                  );
-                }
-                if (!snapshot.hasData) {
-                  return const SizedBox(
-                    height: 250,
-                    child: Center(
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(.08),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                       child: Text(
-                        "Нет данных",
-                        style: TextStyle(color: Colors.white70),
+                        comp.zone.toUpperCase(),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
                       ),
                     ),
-                  );
-                }
+                  ],
+                ),
+                const SizedBox(height: 12),
 
-                final compDetail = snapshot.data!;
-                final color = _statusColor(compDetail.status);
+                FutureBuilder<List<Tariff>>(
+                  future: api.fetchTariffsForComputer(comp.id),
+                  builder: (ctx, snap) {
+                    if (snap.connectionState != ConnectionState.done) {
+                      return const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Center(
+                          child: CircularProgressIndicator(
+                            color: Colors.white70,
+                          ),
+                        ),
+                      );
+                    }
+                    if (snap.hasError) {
+                      return Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Text(
+                          "Не удалось загрузить тарифы: ${snap.error}",
+                          style: const TextStyle(color: Colors.white70),
+                        ),
+                      );
+                    }
 
-                return DraggableScrollableSheet(
-                  expand: false,
-                  initialChildSize: 0.78,
-                  minChildSize: 0.4,
-                  maxChildSize: 0.8,
-                  builder: (context, scrollController) {
-                    return SingleChildScrollView(
-                      controller: scrollController,
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 200),
-                            child: Text(
-                              "Компьютер #${compDetail.id}",
-                              key: ValueKey("title-${compDetail.id}"),
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
+                    final tariffs = snap.data ?? const <Tariff>[];
+                    if (tariffs.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text(
+                          "Для этой зоны тарифов нет.",
+                          style: TextStyle(color: Colors.white70),
+                        ),
+                      );
+                    }
+
+                    return StatefulBuilder(
+                      builder: (ctx2, setStateSB) {
+                        return ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: maxHeight,
+                            minHeight: 0,
                           ),
-                          const SizedBox(height: 16),
-                          _detailRow(
-                            "Статус",
-                            compDetail.status == "free"
-                                ? "Свободен"
-                                : compDetail.status == "booked"
-                                ? "На вас забронирован"
-                                : "Занят",
-                            icon: compDetail.status == "free"
-                                ? Icons.check_circle
-                                : compDetail.status == "booked"
-                                ? Icons.hourglass_empty
-                                : Icons.block,
-                            color: color,
-                          ),
-                          if (compDetail.zone.isNotEmpty)
-                            _detailRow(
-                              "Зона",
-                              compDetail.zone.toUpperCase(),
-                              icon: Icons.location_on,
-                            ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            "Характеристики:",
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          if (compDetail.cpu?.isNotEmpty == true)
-                            _detailRow(
-                              "Процессор",
-                              compDetail.cpu!,
-                              image: "assets/icons/cpu.png",
-                            ),
-                          if (compDetail.gpu?.isNotEmpty == true)
-                            _detailRow(
-                              "Видеокарта",
-                              compDetail.gpu!,
-                              image: "assets/icons/gpu.png",
-                            ),
-                          if (compDetail.ram?.isNotEmpty == true)
-                            _detailRow(
-                              "Оперативная память",
-                              compDetail.ram!,
-                              image: "assets/icons/ram.png",
-                            ),
-                          if (compDetail.monitor?.isNotEmpty == true)
-                            _detailRow(
-                              "Монитор",
-                              compDetail.monitor!,
-                              icon: Icons.desktop_windows,
-                            ),
-                          if (compDetail.keyboard?.isNotEmpty == true)
-                            _detailRow(
-                              "Клавиатура",
-                              compDetail.keyboard!,
-                              icon: Icons.keyboard,
-                            ),
-                          if (compDetail.mouse?.isNotEmpty == true)
-                            _detailRow(
-                              "Мышь",
-                              compDetail.mouse!,
-                              icon: Icons.mouse,
-                            ),
-                          if (compDetail.headphones?.isNotEmpty == true)
-                            _detailRow(
-                              "Наушники",
-                              compDetail.headphones!,
-                              icon: Icons.headset,
-                            ),
-                          const SizedBox(height: 20),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: TextButton(
-                                  onPressed: () => Navigator.pop(context),
-                                  child: const Text("Закрыть"),
-                                ),
-                              ),
-                              if (compDetail.status == "free")
-                                Expanded(
-                                  child: ElevatedButton(
-                                    onPressed: () {
-                                      Navigator.pop(context);
-                                      _bookComputer(compDetail);
-                                    },
-                                    child: const Text("Забронировать"),
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: tariffs.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (_, i) {
+                              final t = tariffs[i];
+                              final fixed = t.minutes > 0;
+                              final selectedNow = selected?.id == t.id;
+
+                              return InkWell(
+                                onTap: () => setStateSB(() => selected = t),
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF23243A),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: selectedNow
+                                          ? const Color(0xFF6C5CE7)
+                                          : Colors.white.withOpacity(.08),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Radio<Tariff>(
+                                        value: t,
+                                        groupValue: selected,
+                                        onChanged: (val) =>
+                                            setStateSB(() => selected = val),
+                                        fillColor: MaterialStateProperty.all(
+                                          const Color(0xFF6C5CE7),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    t.title,
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 8,
+                                                        vertical: 4,
+                                                      ),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.white
+                                                        .withOpacity(.08),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          8,
+                                                        ),
+                                                  ),
+                                                  child: Text(
+                                                    "${t.price} ₸",
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              t.description.isNotEmpty
+                                                  ? t.description
+                                                  : (fixed
+                                                        ? "${t.minutes} мин"
+                                                        : "Свободная длительность"),
+                                              style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                            if (t.discountApplied > 0)
+                                              Padding(
+                                                padding: const EdgeInsets.only(
+                                                  top: 6,
+                                                ),
+                                                child: Row(
+                                                  children: [
+                                                    Container(
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 8,
+                                                            vertical: 3,
+                                                          ),
+                                                      decoration: BoxDecoration(
+                                                        color: const Color(
+                                                          0xFF00B894,
+                                                        ).withOpacity(.18),
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              6,
+                                                            ),
+                                                      ),
+                                                      child: Text(
+                                                        "-${t.discountApplied}%",
+                                                        style: const TextStyle(
+                                                          color: Color(
+                                                            0xFF00B894,
+                                                          ),
+                                                          fontSize: 11,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              if (compDetail.status == "booked")
-                                Expanded(
-                                  child: ElevatedButton(
-                                    onPressed: () {
-                                      Navigator.pop(context);
-                                      _unbookComputer(compDetail);
-                                    },
-                                    child: const Text("Отменить бронь"),
-                                  ),
-                                ),
-                            ],
+                              );
+                            },
                           ),
-                        ],
-                      ),
+                        );
+                      },
                     );
                   },
-                );
-              },
+                ),
+
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () => Navigator.pop(sheetCtx, null),
+                        child: const Text("Отмена"),
+                      ),
+                    ),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          // не возвращаем null по ошибке
+                          Navigator.pop(sheetCtx, selected);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          disabledBackgroundColor: Colors.white.withOpacity(
+                            .12,
+                          ),
+                          disabledForegroundColor: Colors.white70,
+                        ),
+                        // блокируем кнопку, если не выбран тариф
+                        child: Text(
+                          selected == null
+                              ? "Выбрать"
+                              : "Выбрать • ${selected!.price} ₸",
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
         );
@@ -503,82 +626,358 @@ class _ComputersScreenState extends State<ComputersScreen>
     );
   }
 
-  Widget _detailRow(
-    String title,
-    String value, {
-    IconData? icon,
-    String? image,
-    Color? color,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (icon != null)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Icon(icon, size: 24, color: color ?? Colors.white70),
-            ),
-          if (icon == null && image != null)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Image.asset(image, height: 24),
-            ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w500,
-                    color: color ?? Colors.white70,
-                  ),
-                ),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 200),
-                  child: Text(
-                    value,
-                    key: ValueKey("$title-$value"),
-                    style: const TextStyle(fontSize: 14, color: Colors.white),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+  /// Максимально допустимая длительность от старта с учётом:
+  /// - лимита 12 часов
+  /// - 24-часового rolling-окна
+  /// - окна ночного тарифа (если isNightTariff = true): до 08:00
+  Duration _maxDurationForStart(DateTime start, {required bool isNightTariff}) {
+    final now = DateTime.now();
+
+    // лимит 24-часового окна от "сейчас"
+    final endWindow = now.add(_rollingWindow);
+    final capByWindow = endWindow.isBefore(start)
+        ? Duration.zero
+        : endWindow.difference(start);
+
+    // лимит 12 часов от старта
+    const capBy12h = Duration(hours: _maxHours);
+
+    // лимит ночного окна до 08:00 (если требуется)
+    Duration? capByNight;
+    if (isNightTariff) {
+      // вычисляем ближайшую "границу 08:00", которая идёт после старта
+      late DateTime nightEnd;
+      if (start.hour >= 22) {
+        // старт после 22:00 — ночь считается до 08:00 следующего дня
+        final nextDay = start.add(const Duration(days: 1));
+        nightEnd = DateTime(nextDay.year, nextDay.month, nextDay.day, 8, 0);
+      } else if (start.hour < 8) {
+        // старт до 08:00 — ночь до 08:00 сегодняшнего дня
+        // nightEnd = DateTime(start.year, start.month, start.day, 8, 0);
+      } else {
+        // старт не в "ночном" диапазоне: формально окно = 0
+        nightEnd =
+            start; // запретим выбирать что-то не в ночь (дальше проверим выше)
+      }
+      capByNight = nightEnd.isAfter(start)
+          ? nightEnd.difference(start)
+          : Duration.zero;
+    }
+
+    // сводим все ограничения к минимуму
+    Duration maxDur = capByWindow < capBy12h ? capByWindow : capBy12h;
+    if (isNightTariff && capByNight != null) {
+      maxDur = capByNight < maxDur ? capByNight : maxDur;
+    }
+
+    if (maxDur.isNegative) return Duration.zero;
+    return maxDur;
   }
 
   // ---------- ACTIONS ----------
 
-  void _bookComputer(Computer comp) {
-    AppSnack.show(
-      context,
-      message: "Бронируем компьютер #${comp.id}...",
-      type: AppSnackType.info,
-    );
-    api
-        .booking(comp.id, "maintenance")
-        .then((_) {
-          if (!mounted) return;
+  Future<void> _bookComputer(Computer comp) async {
+    final tariff = await _pickTariff(comp);
+    if (tariff == null) return;
+
+    final bool isFixedWindow =
+        (tariff.startAt != null && tariff.startAt!.isNotEmpty) &&
+        (tariff.endAt != null && tariff.endAt!.isNotEmpty);
+
+    DateTime startLocal;
+    Duration dur;
+
+    if (isFixedWindow) {
+      final win = _computeNextFixedWindow(tariff.startAt, tariff.endAt);
+      if (win == null) {
+        AppSnack.show(
+          context,
+          message: "Неверные startAt/endAt у тарифа.",
+          type: AppSnackType.error,
+        );
+        return;
+      }
+
+      final now = DateTime.now();
+      // старт — либо сейчас (если уже идёт окно), либо начало окна
+      startLocal = now.isBefore(win.startBoundary) ? win.startBoundary : now;
+
+      // потолки конца:
+      final byFixed = win.endBoundary;
+      final by12h = startLocal.add(const Duration(hours: _maxHours));
+      final by24h = DateTime.now().add(_rollingWindow);
+
+      // реальный конец — минимум из трёх
+      DateTime effectiveEnd = byFixed;
+      if (by12h.isBefore(effectiveEnd)) effectiveEnd = by12h;
+      if (by24h.isBefore(effectiveEnd)) effectiveEnd = by24h;
+
+      // на случай, если ближайшее окно целиком за горизонтом 24ч
+      if (!startLocal.isBefore(by24h)) {
+        AppSnack.show(
+          context,
+          message: "Ближайшее окно фикс-тарифа выходит за 24 часа.",
+          type: AppSnackType.error,
+        );
+        return;
+      }
+
+      dur = effectiveEnd.difference(startLocal);
+      if (dur <= Duration.zero) {
+        AppSnack.show(
+          context,
+          message: "Старт вне доступного окна. Выберите другой тариф/время.",
+          type: AppSnackType.error,
+        );
+        return;
+      }
+
+      AppSnack.show(
+        context,
+        message:
+            "Бронируем ПК #${comp.id} • «${tariff.title}» (${_hmPretty(tariff.startAt)}–${_hmPretty(tariff.endAt)})...",
+        type: AppSnackType.info,
+      );
+
+      try {
+        await api.booking(
+          comp.id,
+          'maintenance',
+          startLocal,
+          dur,
+          tariffId:
+              tariff.id, // обязательно передаём, чтобы сервер проверил окно
+        );
+        AppSnack.show(
+          context,
+          message: "ПК #${comp.id} забронирован!",
+          type: AppSnackType.success,
+        );
+        _refresh();
+      } catch (e) {
+        final parsed = ServerError.parse(e);
+        if (parsed.code == 'time_conflict') {
+          _showConflictDialog(comp, parsed);
+        } else if (parsed.code == 'out_of_window') {
           AppSnack.show(
             context,
-            message: "Компьютер #${comp.id} забронирован!",
-            type: AppSnackType.success,
-          );
-          _refresh();
-        })
-        .catchError((e) {
-          if (!mounted) return;
-          AppSnack.show(
-            context,
-            message: "Ошибка бронирования: $e",
+            message:
+                "Вне ближайших 24 часов. Доступное окно: ${parsed.windowReadable}",
             type: AppSnackType.error,
           );
-        });
+        } else {
+          AppSnack.show(
+            context,
+            message: parsed.message.isNotEmpty ? parsed.message : "Ошибка: $e",
+            type: AppSnackType.error,
+          );
+        }
+      }
+      return;
+    }
+    // ---- НЕ фикс-окно: показываем picker времени ----
+    final startUtc = await _pickStart(comp);
+    if (startUtc == null) return;
+
+    if (tariff.minutes > 0) {
+      // фиксированная длительность по тарифу
+      dur = Duration(minutes: tariff.minutes);
+      startLocal = startUtc.toLocal();
+    } else {
+      // свободная длительность — показать ползунок
+      final picked = await _pickDuration(startUtc, isNightTariff: false);
+      if (picked == null) return;
+      dur = picked;
+      startLocal = startUtc.toLocal();
+    }
+
+    // стандартные проверки
+    if (dur > const Duration(hours: _maxHours)) {
+      if (!mounted) return;
+      AppSnack.show(
+        context,
+        message: "Максимальная длительность — $_maxHours часов",
+        type: AppSnackType.error,
+      );
+      return;
+    }
+    final latestEndAllowed = DateTime.now().add(_rollingWindow);
+    if (startLocal.add(dur).isAfter(latestEndAllowed)) {
+      if (!mounted) return;
+      AppSnack.show(
+        context,
+        message:
+            "Бронь должна быть в пределах ближайших 24 часов (до ${formatDateTime(latestEndAllowed)}).",
+        type: AppSnackType.error,
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    AppSnack.show(
+      context,
+      message: "Бронируем ПК #${comp.id} • «${tariff.title}»...",
+      type: AppSnackType.info,
+    );
+
+    try {
+      await api.booking(
+        comp.id,
+        'maintenance',
+        startLocal,
+        dur,
+        tariffId: tariff.id, // <— тоже передаём (на будущее проверок)
+      );
+      if (!mounted) return;
+      AppSnack.show(
+        context,
+        message: "ПК #${comp.id} забронирован!",
+        type: AppSnackType.success,
+      );
+      _refresh();
+    } catch (e) {
+      if (!mounted) return;
+      final parsed = ServerError.parse(e);
+      if (parsed.code == 'time_conflict') {
+        _showConflictDialog(comp, parsed);
+      } else if (parsed.code == 'out_of_window') {
+        AppSnack.show(
+          context,
+          message:
+              "Нельзя бронировать вне ближайших 24 часов. Доступное окно: ${parsed.windowReadable}",
+          type: AppSnackType.error,
+        );
+      } else {
+        AppSnack.show(
+          context,
+          message: parsed.message.isNotEmpty ? parsed.message : "Ошибка: $e",
+          type: AppSnackType.error,
+        );
+      }
+    }
+  }
+
+  Future<DateTime?> _pickStart(Computer comp) async {
+    final List<TimeSlot> busy = await parseBookedComputer(comp);
+    if (!mounted) return null;
+
+    final DateTime? pickedStart = await showModalBottomSheet<DateTime>(
+      context: context,
+      backgroundColor: const Color(0xFF1E1F2E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      isScrollControlled: true,
+      builder: (sheetCtx) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: RealtimeClockBooking(
+            busy: busy,
+            minuteStep: const Duration(minutes: 15),
+            clockSize: 250,
+            maxStartAhead: const Duration(hours: 12), // <— ВАЖНО
+            onConfirm: (startUtc) => Navigator.of(sheetCtx).pop(startUtc),
+          ),
+        );
+      },
+    );
+
+    return pickedStart; // UTC
+  }
+
+  Future<Duration?> _pickDuration(
+    DateTime start, {
+    required bool isNightTariff,
+  }) async {
+    final maxDur = _maxDurationForStart(start, isNightTariff: isNightTariff);
+
+    if (maxDur <= Duration.zero) {
+      AppSnack.show(
+        context,
+        message: "Старт вне доступного окна. Выберите другое время.",
+        type: AppSnackType.error,
+      );
+      return null;
+    }
+
+    Duration current = const Duration(hours: 1);
+    if (current > maxDur) current = maxDur;
+
+    final now = DateTime.now();
+
+    return showModalBottomSheet<Duration>(
+      context: context,
+      backgroundColor: const Color(0xFF1E1F2E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setStateSB) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Длительность",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 18,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "Максимум: ${readableDuration(maxDur)} (окно до ${formatDateTime(now.add(_rollingWindow))})",
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 16),
+                  DurationSlider(
+                    value: current,
+                    max: maxDur,
+                    onChanged: (d) => setStateSB(() => current = d),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(context, null),
+                          child: const Text("Отмена"),
+                        ),
+                      ),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pop(context, current),
+                          child: Text("OK • ${readableDuration(current)}"),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  DateTime combineDayAndTime(DateTime day, TimeOfDay t) {
+    return DateTime(day.year, day.month, day.day, t.hour, t.minute);
+  }
+
+  Future<List<TimeSlot>> parseBookedComputer(Computer comp) async {
+    final bookingData = await api.fetchBookedIntervals(comp.id);
+    final List<dynamic> booked = (bookingData['booked'] as List?) ?? const [];
+
+    return booked.map((e) {
+      final start = DateTime.parse(e['start'] as String);
+      final end = DateTime.parse(e['end'] as String);
+      return TimeSlot(start, end);
+    }).toList();
   }
 
   void _unbookComputer(Computer comp) {
@@ -588,7 +987,7 @@ class _ComputersScreenState extends State<ComputersScreen>
       type: AppSnackType.info,
     );
     api
-        .booking(comp.id, "release")
+        .booking(comp.id, "release", null, null)
         .then((_) {
           if (!mounted) return;
           AppSnack.show(
@@ -608,6 +1007,121 @@ class _ComputersScreenState extends State<ComputersScreen>
         });
   }
 
+  // ---------- ERROR PARSING & CONFLICT DIALOG ----------
+
+  void _showConflictDialog(Computer comp, ServerError err) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF1E1F2E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "Конфликт по времени",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  err.message.isNotEmpty
+                      ? err.message
+                      : "Запрошенный интервал пересекается с существующей бронью.",
+                  style: const TextStyle(color: Colors.white70),
+                ),
+                if (err.windowReadable.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    "Доступное окно: ${err.windowReadable}",
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                if (err.suggestions.isNotEmpty)
+                  const Text(
+                    "Предлагаем варианты:",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                if (err.suggestions.isNotEmpty) const SizedBox(height: 8),
+                if (err.suggestions.isNotEmpty)
+                  ...err.suggestions
+                      .take(3)
+                      .map(
+                        (s) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              Navigator.pop(ctx);
+                              await _bookSuggested(comp, s);
+                            },
+                            child: Text(
+                              "${formatDateTime(s.start)} • ${readableDuration(s.end.difference(s.start))}",
+                            ),
+                          ),
+                        ),
+                      ),
+                if (err.suggestions.isEmpty)
+                  const Text(
+                    "Свободные варианты отсутствуют. Попробуйте выбрать другое время.",
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text("Закрыть"),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _bookSuggested(Computer comp, Suggestion s) async {
+    AppSnack.show(
+      context,
+      message: "Пробуем вариант: ${formatDateTime(s.start)}...",
+      type: AppSnackType.info,
+    );
+    try {
+      await api.booking(
+        comp.id,
+        'maintenance',
+        s.start,
+        s.end.difference(s.start),
+      );
+      if (!mounted) return;
+      AppSnack.show(
+        context,
+        message: "Готово! ПК #${comp.id} забронирован.",
+        type: AppSnackType.success,
+      );
+      _refresh();
+    } catch (e) {
+      if (!mounted) return;
+      AppSnack.show(
+        context,
+        message: "Не удалось забронировать предложенный слот: $e",
+        type: AppSnackType.error,
+      );
+    }
+  }
+
   // ---------- BUILD ----------
 
   @override
@@ -622,7 +1136,6 @@ class _ComputersScreenState extends State<ComputersScreen>
       ),
       body: Container(
         decoration: const BoxDecoration(
-          // фон в стиле профиля
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
@@ -639,223 +1152,63 @@ class _ComputersScreenState extends State<ComputersScreen>
   }
 }
 
-// ========= WIDGETS =========
+// ---------------- FIXED-WINDOW HELPERS ----------------
 
-class _ComputerCard extends StatelessWidget {
-  final Computer comp;
-  final VoidCallback onTap;
-  final Color statusColor;
-
-  const _ComputerCard({
-    super.key,
-    required this.comp,
-    required this.onTap,
-    required this.statusColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1E1F2E).withOpacity(0.6),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withOpacity(0.08)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.25),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              // статус-иконка с плавной сменой цвета
-              TweenAnimationBuilder<Color?>(
-                tween: ColorTween(begin: statusColor, end: statusColor),
-                duration: const Duration(milliseconds: 250),
-                builder: (_, c, __) => Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: (c ?? statusColor).withValues(alpha: 0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(Icons.desktop_windows, color: c ?? statusColor),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 200),
-                      child: Text(
-                        "Компьютер №${comp.id} (${comp.zone.toUpperCase()})",
-                        key: ValueKey("title-${comp.id}-${comp.zone}"),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 200),
-                      child: Text(
-                        "Статус: ${comp.status == "free"
-                            ? "Свободен"
-                            : comp.status == "booked"
-                            ? "На вас забронирован"
-                            : "Занят"}",
-                        key: ValueKey("status-${comp.id}-${comp.status}"),
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.chevron_right, color: Colors.white38),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+TimeOfDay? _parseHm(String? s) {
+  if (s == null || s.isEmpty) return null;
+  final parts = s.split(':');
+  if (parts.length != 2) return null;
+  final h = int.tryParse(parts[0]);
+  final m = int.tryParse(parts[1]);
+  if (h == null || m == null) return null;
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return TimeOfDay(hour: h, minute: m);
 }
 
-// Скелетоны, как в профиле
-class _ListSkeleton extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return ListView.builder(
-      padding: const EdgeInsets.only(top: 8, bottom: 24),
-      itemCount: 8,
-      itemBuilder: (_, __) => const _ComputerCardSkeleton(),
-    );
-  }
+String _hmPretty(String? s) => s ?? '';
+
+DateTime _combine(DateTime base, TimeOfDay tod) =>
+    DateTime(base.year, base.month, base.day, tod.hour, tod.minute);
+
+class _FixedWindow {
+  final DateTime startBoundary; // граница начала окна
+  final DateTime endBoundary; // граница конца окна
+  _FixedWindow(this.startBoundary, this.endBoundary);
 }
 
-class _ComputerCardSkeleton extends StatelessWidget {
-  const _ComputerCardSkeleton();
+/// Ближайшее окно по локальному времени клуба.
+/// - Всегда возвращает ГРАНИЦЫ окна, без "start=now".
+_FixedWindow? _computeNextFixedWindow(String? startAt, String? endAt) {
+  final s = _parseHm(startAt);
+  final e = _parseHm(endAt);
+  if (s == null || e == null) return null;
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1F2E).withOpacity(0.6),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.08),
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _skelLine(widthFactor: 0.6, height: 16),
-                const SizedBox(height: 6),
-                _skelLine(widthFactor: 0.4, height: 14),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+  final now = DateTime.now();
+  final todayStart = _combine(now, s);
+  var todayEnd = _combine(now, e);
+
+  final crossesMidnight =
+      (e.hour < s.hour) || (e.hour == s.hour && e.minute <= s.minute);
+  if (crossesMidnight && !todayEnd.isAfter(todayStart)) {
+    todayEnd = todayEnd.add(const Duration(days: 1));
   }
 
-  Widget _skelLine({required double widthFactor, required double height}) {
-    return FractionallySizedBox(
-      widthFactor: widthFactor,
-      child: Container(
-        height: height,
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(8),
-        ),
-      ),
-    );
+  // Если мы ещё ДО старта окна → ближайшее окно сегодня
+  if (now.isBefore(todayStart)) {
+    return _FixedWindow(todayStart, todayEnd);
   }
-}
 
-// Маркер на карте с плавными изменениями
-class _AnimatedMarker extends StatelessWidget {
-  final Computer comp;
-  final double cellSize;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _AnimatedMarker({
-    super.key,
-    required this.comp,
-    required this.cellSize,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedPositioned(
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOutCubic,
-      left: comp.x * cellSize,
-      top: comp.y * cellSize,
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOutCubic,
-          width: cellSize - 20,
-          height: cellSize - 20,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(10),
-            boxShadow: [
-              BoxShadow(
-                color: color.withOpacity(0.35),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.computer, size: 26, color: Colors.black87),
-              Text(
-                "PC ${comp.id}",
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Colors.black87,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+  // Если мы ВНУТРИ окна → ближайшее окно сейчасшнее (границы: те же)
+  if (now.isBefore(todayEnd)) {
+    return _FixedWindow(todayStart, todayEnd);
   }
+
+  // Окно прошло → завтра
+  final tomorrow = now.add(const Duration(days: 1));
+  final nextStart = _combine(tomorrow, s);
+  var nextEnd = _combine(tomorrow, e);
+  if (crossesMidnight && !nextEnd.isAfter(nextStart)) {
+    nextEnd = nextEnd.add(const Duration(days: 1));
+  }
+  return _FixedWindow(nextStart, nextEnd);
 }

@@ -18,5 +18,6 @@ class Promotion {
     this.gradient,
     this.icon,
     this.category,
+    String? id,
   });
 }

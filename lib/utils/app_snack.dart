@@ -135,12 +135,12 @@ class _SnackContent extends StatelessWidget {
     return Container(
       // Под стиль: полупрозрачная тёмная карточка
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1F2E).withOpacity(0.85),
+        color: const Color(0xFF1E1F2E).withValues(alpha: 0.85),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.35),
+            color: Colors.black.withValues(alpha: 0.35),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -151,7 +151,7 @@ class _SnackContent extends StatelessWidget {
         children: [
           Container(
             decoration: BoxDecoration(
-              color: bg.withOpacity(0.18),
+              color: bg.withValues(alpha: 0.18),
               shape: BoxShape.circle,
             ),
             padding: const EdgeInsets.all(8),
@@ -162,7 +162,7 @@ class _SnackContent extends StatelessWidget {
             child: Text(
               message,
               style: TextStyle(
-                color: Colors.white.withOpacity(0.95),
+                color: Colors.white.withValues(alpha: 0.95),
                 fontSize: 14,
               ),
             ),
@@ -172,7 +172,7 @@ class _SnackContent extends StatelessWidget {
               onPressed: onAction,
               style: TextButton.styleFrom(
                 foregroundColor: fg,
-                backgroundColor: bg.withOpacity(0.15),
+                backgroundColor: bg.withValues(alpha: 0.15),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
                   vertical: 6,
@@ -193,7 +193,7 @@ class _SnackContent extends StatelessWidget {
                 ScaffoldMessenger.of(context).hideCurrentSnackBar(),
             icon: Icon(
               Icons.close_rounded,
-              color: Colors.white.withOpacity(0.6),
+              color: Colors.white.withValues(alpha: 0.6),
               size: 18,
             ),
             splashRadius: 18,

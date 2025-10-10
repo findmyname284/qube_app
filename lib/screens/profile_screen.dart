@@ -1,22 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:qube/models/me.dart';
+import 'package:qube/models/tariff.dart';
 import 'package:qube/screens/login_screen.dart';
 import 'package:qube/services/api_service.dart';
 import 'package:qube/services/auth_storage.dart';
 import 'package:qube/utils/app_snack.dart';
+import 'package:qube/utils/helper.dart';
 import 'package:qube/widgets/qubebar.dart';
+import 'package:qube/widgets/zone_chips.dart';
 
 final api = ApiService.instance;
 
 class ProfileScreen extends StatefulWidget {
-  final List<Map<String, dynamic>> tariffs;
-  final Profile? profile;
+  final List<Tariff>? tariffs; // можно передать снаружи
+  final Profile? profile; // можно передать снаружи
   final void Function(Profile)? onLoggedIn;
   final void Function()? onLoggedOut;
 
   const ProfileScreen({
     super.key,
-    required this.tariffs,
+    this.tariffs,
     this.profile,
     this.onLoggedIn,
     this.onLoggedOut,
@@ -29,85 +32,128 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final _refreshKey = GlobalKey<RefreshIndicatorState>();
 
-  bool isLoading = true;
+  // --- профиль ---
+  bool isLoading = true; // загрузка профиля
   bool isLoggedIn = false;
   Profile? profile;
   bool _showBalance = true;
+
+  // --- тарифы ---
+  List<Tariff> _tariffs = const [];
+  bool _tariffsLoading = false;
+
+  // если у тебя есть /zones — лучше загрузить реально с сервера.
+  // пока дефолт + поверх него добавим ключи из пришедших тарифов (если есть)
+  List<String> _zones = ['main', 'vip', 'pro', 'premium', 'premium2'];
+  String _selectedZone = 'main';
 
   @override
   void initState() {
     super.initState();
 
-    // если профиль уже пришёл «сверху» — показываем сразу (без «гостя»)
+    // стартовые данные по тарифам, если пришли сверху
+    if (widget.tariffs != null && widget.tariffs!.isNotEmpty) {
+      _tariffs = widget.tariffs!;
+      // соберём доступные зоны из zonePrices
+      final fromTariffs = widget.tariffs!
+          .expand((t) => t.zonePrices.keys)
+          .map((e) => e.toString())
+          .toSet();
+      if (fromTariffs.isNotEmpty) {
+        _zones = fromTariffs.toList()..sort();
+        // выберем безопасно первую доступную зону, если там нет main
+        if (!_zones.contains(_selectedZone)) {
+          _selectedZone = _zones.first;
+        }
+      }
+    } else {
+      // если ничего не передали — сразу грузим тарифы под выбранную зону
+      _loadTariffsForZone(_selectedZone);
+    }
+
+    // профиль: если передали — показываем сразу
     if (widget.profile != null) {
       isLoggedIn = true;
       profile = widget.profile;
       isLoading = false;
-      // при желании можно фоном обновить данные, но без мерцаний
       _softRefreshInBackground();
     } else {
-      // обычный путь: первая отрисовка = лоадер, затем подгружаем профиль
+      // иначе грузим
       Future.microtask(_loadProfile);
     }
   }
+
+  // ---------- API: Профиль ----------
 
   Future<void> _softRefreshInBackground() async {
     try {
       final token = await AuthStorage.getToken();
       if (token == null) return;
       final fresh = await api.getProfile();
-      if (!mounted || fresh == null) return;
-      setState(() {
+      if (fresh == null) return;
+      setStateSafe(() {
         isLoggedIn = true;
         profile = fresh;
       });
       widget.onLoggedIn?.call(fresh);
     } catch (_) {
-      // молча игнорируем — это фоновое обновление
+      /* тихо */
     }
   }
 
-  Future<void> _triggerRefresh() async {
-    // ручное «потянуть-вниз» — обычный рефреш
-    await _loadProfile();
-  }
-
   Future<void> _loadProfile() async {
-    if (!mounted) return;
-    setState(() => isLoading = true);
-
+    setStateSafe(() => isLoading = true);
     try {
       final token = await AuthStorage.getToken();
-
       if (token != null) {
         final fetched = await api.getProfile();
-        if (!mounted) return;
-        setState(() {
+        setStateSafe(() {
           isLoggedIn = fetched != null;
           profile = fetched;
         });
-        if (fetched != null) {
-          widget.onLoggedIn?.call(fetched);
-        }
+        if (fetched != null) widget.onLoggedIn?.call(fetched);
       } else {
-        if (!mounted) return;
-        setState(() {
+        setStateSafe(() {
           isLoggedIn = false;
           profile = null;
         });
       }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
+    } catch (_) {
+      setStateSafe(() {
         isLoggedIn = false;
         profile = null;
       });
     } finally {
-      if (mounted) {
-        setState(() => isLoading = false);
-      }
+      if (mounted) setStateSafe(() => isLoading = false);
     }
   }
+
+  // ---------- API: Тарифы ----------
+
+  Future<void> _loadTariffsForZone(String zone) async {
+    setStateSafe(() {
+      _tariffsLoading = true;
+      // не очищаем _tariffs, чтобы не мигало — можно показать старые пока грузим
+    });
+    try {
+      final t = await api.fetchTariffs(
+        zone: zone,
+      ); // сервер вернёт price для зоны
+      setStateSafe(() => _tariffs = t);
+    } catch (_) {
+      // Можно показать снек, если нужно:
+      // if (mounted) AppSnack.show(context, message: 'Не удалось загрузить тарифы', type: AppSnackType.error);
+    } finally {
+      if (mounted) setStateSafe(() => _tariffsLoading = false);
+    }
+  }
+
+  Future<void> _triggerRefresh() async {
+    await _loadProfile();
+    await _loadTariffsForZone(_selectedZone);
+  }
+
+  // ---------- Выход ----------
 
   Future<void> _logout() async {
     showDialog(
@@ -145,13 +191,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
             onPressed: () async {
               Navigator.pop(context);
               await AuthStorage.clearToken();
-              if (!mounted) return;
-              setState(() {
+              setStateSafe(() {
                 isLoggedIn = false;
                 profile = null;
               });
               widget.onLoggedOut?.call();
-
+              if (!context.mounted) return;
               AppSnack.show(
                 context,
                 message: "Вы вышли из аккаунта",
@@ -169,15 +214,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _toggleBalanceVisibility() {
-    setState(() {
-      _showBalance = !_showBalance;
-    });
+    setStateSafe(() => _showBalance = !_showBalance);
   }
 
-  // ---------- UI ----------
+  // ---------- UI блоки ----------
 
   Widget _buildLoadingHeader() {
-    // лёгкий скелетон без пакетов
     return Container(
       height: 180,
       margin: const EdgeInsets.only(bottom: 24),
@@ -192,7 +234,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       child: Row(
         children: [
-          // аватар-скелет
           Container(
             width: 80,
             height: 80,
@@ -202,12 +243,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           const SizedBox(width: 16),
-          // текстовые полоски
-          Expanded(
+          const Expanded(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
+              children: [
                 _SkeletonLine(widthFactor: 0.6, height: 20),
                 SizedBox(height: 12),
                 _SkeletonLine(widthFactor: 0.4, height: 16),
@@ -234,16 +274,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 end: Alignment.bottomRight,
               )
             : LinearGradient(
-                colors: [
-                  const Color(0xFF1E1F2E),
-                  const Color(0xFF1E1F2E).withOpacity(0.8),
-                ],
+                colors: [const Color(0xFF1E1F2E), const Color(0xFF1E1F2E)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
             color: (isLoggedIn ? const Color(0xFF6C5CE7) : Colors.black)
-                .withOpacity(0.3),
+                .withValues(alpha: .3),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
@@ -251,7 +290,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       child: Column(
         children: [
-          // Аватар и статус
           Stack(
             children: [
               Container(
@@ -263,15 +301,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ? const LinearGradient(
                           colors: [Color(0xFFA363D9), Color(0xFF6C5CE7)],
                         )
-                      : LinearGradient(
-                          colors: [
-                            Colors.grey.withOpacity(0.5),
-                            Colors.grey.withOpacity(0.3),
-                          ],
-                        ),
+                      : LinearGradient(colors: [Colors.grey, Colors.grey]),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
+                      color: Colors.black.withValues(alpha: .3),
                       blurRadius: 10,
                       offset: const Offset(0, 5),
                     ),
@@ -308,10 +341,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
             ],
           ),
-
           const SizedBox(height: 16),
-
-          // Имя пользователя
           Text(
             isLoggedIn ? (profile?.username ?? "Пользователь") : "Гость",
             style: const TextStyle(
@@ -320,10 +350,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               color: Colors.white,
             ),
           ),
-
           const SizedBox(height: 8),
-
-          // Баланс или CTA
           if (isLoggedIn) ...[
             GestureDetector(
               onTap: _toggleBalanceVisibility,
@@ -353,11 +380,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             const SizedBox(height: 16),
             ElevatedButton(
-              onPressed: () {
-                // Пополнение баланса
-              },
+              onPressed: () {},
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white.withOpacity(0.2),
+                backgroundColor: Colors.white.withValues(alpha: .2),
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -375,11 +400,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               onPressed: () async {
                 final result = await Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => const LoginScreen()),
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
                 );
-                if (result == true) {
-                  _loadProfile();
-                }
+                if (result == true) _loadProfile();
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF6C5CE7),
@@ -398,9 +421,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildDiscountCard() {
     if (isLoading) return const SizedBox();
-    if (!isLoggedIn || profile?.discount == null || profile!.discount! <= 0) {
-      return const SizedBox();
-    }
+    if (!isLoggedIn || (profile?.discount ?? 0) <= 0) return const SizedBox();
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -409,13 +430,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [Color(0xFFFF9F43), Color(0xFFFF6B6B)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFFF9F43).withOpacity(0.4),
+            color: const Color(0xFFFF9F43).withValues(alpha: .4),
             blurRadius: 15,
             offset: const Offset(0, 5),
           ),
@@ -426,7 +445,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
+              color: Colors.white.withValues(alpha: .2),
               shape: BoxShape.circle,
             ),
             child: const Icon(Icons.local_offer_rounded, color: Colors.white),
@@ -457,16 +476,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildTariffsSection() {
+  Widget _buildTariffsHeader() {
     if (isLoading) return const SizedBox();
-    if (widget.tariffs.isEmpty) return const SizedBox();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 8.0),
-          child: Text(
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 6),
+      child: Row(
+        children: [
+          const Text(
             "Тарифы",
             style: TextStyle(
               fontSize: 20,
@@ -474,123 +490,208 @@ class _ProfileScreenState extends State<ProfileScreen> {
               color: Colors.white,
             ),
           ),
-        ),
-        ...widget.tariffs.map((tariff) {
-          final int price = tariff['price'];
-          final bool hasDiscount =
-              isLoggedIn && profile?.discount != null && profile!.discount! > 0;
-          final int discountedPrice = hasDiscount
-              ? (price * (100 - profile!.discount!) ~/ 100)
-              : price;
+          const Spacer(),
+          Icon(
+            Icons.layers_rounded,
+            size: 18,
+            color: Colors.white.withValues(alpha: .7),
+          ),
+          const SizedBox(width: 6),
+        ],
+      ),
+    );
+  }
 
-          return AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            margin: const EdgeInsets.only(bottom: 12),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: () {},
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E1F2E).withOpacity(0.6),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white.withOpacity(0.1)),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF6C5CE7).withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.computer_rounded,
-                          color: Color(0xFF6C5CE7),
-                        ),
+  Widget _buildTariffsSection() {
+    if (isLoading) return const SizedBox();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildTariffsHeader(),
+
+        // фильтр зон
+        ZoneChips(
+          zones: _zones,
+          selected: _selectedZone,
+          onChanged: (z) {
+            if (_selectedZone == z) return;
+            setStateSafe(() => _selectedZone = z);
+            _loadTariffsForZone(z);
+          },
+        ),
+        const SizedBox(height: 10),
+
+        if (_tariffsLoading)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Center(
+              child: CircularProgressIndicator(color: Colors.white70),
+            ),
+          )
+        else if (_tariffs.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E1F2E).withValues(alpha: .6),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white.withValues(alpha: .08)),
+            ),
+            child: const Text(
+              'Для выбранной зоны тарифов нет',
+              style: TextStyle(color: Colors.white60),
+            ),
+          )
+        else
+          ..._tariffs.map((tariff) {
+            final int price =
+                tariff.price; // уже цена для выбранной зоны из сервера
+            final bool hasDiscount = isLoggedIn && (profile?.discount ?? 0) > 0;
+            final int discountedPrice = hasDiscount
+                ? (price * (100 - (profile!.discount ?? 0)) ~/ 100)
+                : price;
+
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              margin: const EdgeInsets.only(bottom: 12),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: () {
+                    // старт покупки/брони с tariff.minutes и _selectedZone
+                    // TODO: внедрить flow покупки/брони
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E1F2E).withValues(alpha: .6),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: .1),
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              tariff['title'],
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            if (hasDiscount)
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(
+                              0xFF6C5CE7,
+                            ).withValues(alpha: .2),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.computer_rounded,
+                            color: Color(0xFF6C5CE7),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                               Row(
                                 children: [
                                   Text(
-                                    "$price ₸",
+                                    tariff.title,
                                     style: const TextStyle(
-                                      color: Colors.red,
-                                      decoration: TextDecoration.lineThrough,
-                                      fontSize: 14,
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    tariff.minutes > 0
+                                        ? "(${tariff.minutes} мин)"
+                                        : "",
+                                    style: const TextStyle(
+                                      color: Colors.white54,
+                                      fontSize: 12,
                                     ),
                                   ),
                                   const SizedBox(width: 8),
-                                  Text(
-                                    "$discountedPrice ₸",
-                                    style: const TextStyle(
-                                      color: Color(0xFF00B894),
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(
+                                        alpha: .08,
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      _selectedZone.toUpperCase(),
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     ),
                                   ),
                                 ],
-                              )
-                            else
-                              Text(
-                                "$price ₸",
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 16,
-                                ),
                               ),
-                          ],
+                              if (tariff.description.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  tariff.description,
+                                  style: const TextStyle(
+                                    color: Colors.white60,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 6),
+                              if (hasDiscount)
+                                Row(
+                                  children: [
+                                    Text(
+                                      "$price ₸",
+                                      style: const TextStyle(
+                                        color: Colors.red,
+                                        decoration: TextDecoration.lineThrough,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      "$discountedPrice ₸",
+                                      style: const TextStyle(
+                                        color: Color(0xFF00B894),
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              else
+                                Text(
+                                  "$price ₸",
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
-                      ),
-                      if (hasDiscount)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF00B894),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            "-${profile!.discount}%",
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          );
-        }).toList(),
+            );
+          }),
       ],
     );
   }
 
   Widget _buildQuickActions() {
     if (isLoading) return const SizedBox();
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -656,9 +757,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         onTap: onTap,
         child: Container(
           decoration: BoxDecoration(
-            color: const Color(0xFF1E1F2E).withOpacity(0.6),
+            color: const Color(0xFF1E1F2E).withValues(alpha: .6),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withOpacity(0.1)),
+            border: Border.all(color: Colors.white.withValues(alpha: .1)),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -666,7 +767,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.2),
+                  color: color.withValues(alpha: .2),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(icon, color: color),
@@ -674,12 +775,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const SizedBox(height: 8),
               Text(
                 title,
+                textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                 ),
-                textAlign: TextAlign.center,
               ),
             ],
           ),
@@ -703,7 +804,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               icon: Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.1),
+                  color: Colors.white.withValues(alpha: .1),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(Icons.logout_rounded, size: 18),
@@ -750,11 +851,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
-// простой «скелетон»-виджет без зависимостей
+// простой скелетон
 class _SkeletonLine extends StatelessWidget {
   final double widthFactor;
   final double height;
-
   const _SkeletonLine({required this.widthFactor, required this.height});
 
   @override

@@ -1,6 +1,7 @@
 // lib/widgets/promotion_card.dart
 import 'package:flutter/material.dart';
 import 'package:qube/models/promotion.dart';
+import 'package:qube/utils/helper.dart';
 
 class PromotionCard extends StatefulWidget {
   final Promotion promo;
@@ -21,8 +22,7 @@ class _PromotionCardState extends State<PromotionCard> {
     super.initState();
     // Ждём первый кадр, чтобы не мешать анимации навигации
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      setState(() => _postFramePassed = true);
+      setStateSafe(() => _postFramePassed = true);
     });
   }
 
@@ -56,8 +56,7 @@ class _PromotionCardState extends State<PromotionCard> {
               );
 
               precacheImage(provider, context).then((_) {
-                if (!mounted) return;
-                setState(() => _imageProvider = provider);
+                setStateSafe(() => _imageProvider = provider);
               });
             }
 
@@ -75,17 +74,17 @@ class _PromotionCardState extends State<PromotionCard> {
                 //     : null,
                 boxShadow: [
                   BoxShadow(
-                    color: gradientColors.first.withOpacity(0.28),
+                    color: gradientColors.first.withValues(alpha: 0.28),
                     blurRadius: 16,
                     offset: const Offset(0, 6),
                   ),
                 ],
-                border: Border.all(color: Colors.white.withOpacity(0.06)),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
               ),
               foregroundDecoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(20),
                 color: (_imageProvider != null)
-                    ? Colors.black.withOpacity(0.22)
+                    ? Colors.black.withValues(alpha: 0.22)
                     : null,
               ),
               child: Stack(
@@ -99,7 +98,7 @@ class _PromotionCardState extends State<PromotionCard> {
                         width: 88,
                         height: 88,
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.08),
+                          color: Colors.white.withValues(alpha: 0.08),
                           shape: BoxShape.circle,
                         ),
                       ),
@@ -118,10 +117,10 @@ class _PromotionCardState extends State<PromotionCard> {
                             Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.16),
+                                color: Colors.white.withValues(alpha: 0.16),
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
-                                  color: Colors.white.withOpacity(0.08),
+                                  color: Colors.white.withValues(alpha: 0.08),
                                 ),
                               ),
                               child: Icon(
@@ -155,7 +154,7 @@ class _PromotionCardState extends State<PromotionCard> {
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.92),
+                              color: Colors.white.withValues(alpha: 0.92),
                               fontSize: 14,
                               height: 1.45,
                             ),
@@ -172,10 +171,10 @@ class _PromotionCardState extends State<PromotionCard> {
                                   vertical: 6,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.14),
+                                  color: Colors.white.withValues(alpha: 0.14),
                                   borderRadius: BorderRadius.circular(8),
                                   border: Border.all(
-                                    color: Colors.white.withOpacity(0.08),
+                                    color: Colors.white.withValues(alpha: 0.08),
                                   ),
                                 ),
                                 child: Row(
@@ -183,14 +182,18 @@ class _PromotionCardState extends State<PromotionCard> {
                                   children: [
                                     Icon(
                                       Icons.schedule_rounded,
-                                      color: Colors.white.withOpacity(0.85),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.85,
+                                      ),
                                       size: 14,
                                     ),
                                     const SizedBox(width: 6),
                                     Text(
                                       "До ${promo.endDate!.day}.${promo.endDate!.month}.${promo.endDate!.year}",
                                       style: TextStyle(
-                                        color: Colors.white.withOpacity(0.85),
+                                        color: Colors.white.withValues(
+                                          alpha: 0.85,
+                                        ),
                                         fontSize: 12,
                                         fontWeight: FontWeight.w600,
                                       ),
@@ -203,7 +206,9 @@ class _PromotionCardState extends State<PromotionCard> {
                               onPressed: widget.onMore,
                               style: TextButton.styleFrom(
                                 foregroundColor: Colors.white,
-                                backgroundColor: Colors.white.withOpacity(0.12),
+                                backgroundColor: Colors.white.withValues(
+                                  alpha: 0.12,
+                                ),
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 10,
                                   vertical: 8,

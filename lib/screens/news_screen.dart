@@ -2,8 +2,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:qube/models/promotion.dart';
+import 'package:qube/services/api_service.dart';
+import 'package:qube/utils/helper.dart';
 import 'package:qube/widgets/promotion_card.dart';
 import 'package:qube/widgets/qubebar.dart';
+
+final api = ApiService.instance;
 
 class NewsScreen extends StatefulWidget {
   const NewsScreen({super.key});
@@ -15,49 +19,58 @@ class NewsScreen extends StatefulWidget {
 class _NewsScreenState extends State<NewsScreen> {
   bool _isRefreshing = false;
   String _selectedFilter = 'Все';
+  List<Promotion> promotions = [];
 
   // демо-данные
-  late List<Promotion> promotions = [
-    Promotion(
-      title: "4+3 Абонемент + Energy",
-      description: "Купи тариф 4+3 и получи 1 Tassay Energy бесплатно!",
-      imageUrl: "https://imageproxy.wolt.com/assets/685ed326f43200b6b5209f2a",
-      gradient: const [Color(0xFF6C5CE7), Color(0xFFA363D9)],
-      icon: Icons.local_offer_rounded,
-      category: 'Акции',
-    ),
-    Promotion(
-      title: "Конкурс пополнений",
-      description:
-          "Пополни аккаунт на 5000₸ и участвуй в розыгрыше:\n"
-          "• 🎧 Marshall накладные\n"
-          "• 🎶 Marshall как AirPods\n"
-          "• 🖱️ VGN Dragonfly",
-      imageUrl:
-          "https://pspdf.kz/image/catalog/products/zvuk/marshall-motif-ii/1.jpg",
-      endDate: DateTime(2025, 10, 31),
-      gradient: const [Color(0xFFFF9A8B), Color(0xFFFF6A88), Color(0xFF5F2C82)],
-      icon: Icons.celebration_rounded,
-      category: 'Акции',
-    ),
-    Promotion(
-      title: "Ночной тариф",
-      description: "С 00:00 до 08:00 специальные цены для ночных геймеров!",
-      gradient: const [Color(0xFF18DCFF), Color(0xFF7D5FFF)],
-      icon: Icons.nightlife_rounded,
-      category: 'Новости',
-    ),
-  ];
+  //   late List<Promotion> promotions = [
+  //     Promotion(
+  //       title: "4+3 Абонемент + Energy",
+  //       description: "Купи тариф 4+3 и получи 1 Tassay Energy бесплатно!",
+  //       imageUrl: "https://imageproxy.wolt.com/assets/685ed326f43200b6b5209f2a",
+  //       gradient: const [Color(0xFF6C5CE7), Color(0xFFA363D9)],
+  //       icon: Icons.local_offer_rounded,
+  //       category: 'Акции',
+  //     ),
+  //     Promotion(
+  //       title: "Конкурс пополнений",
+  //       description:
+  //           "Пополни аккаунт на 5000₸ и участвуй в розыгрыше:\n"
+  //           "• 🎧 Marshall накладные\n"
+  //           "• 🎶 Marshall как AirPods\n"
+  //           "• 🖱️ VGN Dragonfly",
+  //       imageUrl:
+  //           "https://pspdf.kz/image/catalog/products/zvuk/marshall-motif-ii/1.jpg",
+  //       endDate: DateTime(2025, 10, 31),
+  //       gradient: const [Color(0xFFFF9A8B), Color(0xFFFF6A88), Color(0xFF5F2C82)],
+  //       icon: Icons.celebration_rounded,
+  //       category: 'Акции',
+  //     ),
+  //     Promotion(
+  //       title: "Ночной тариф",
+  //       description: "С 00:00 до 08:00 специальные цены для ночных геймеров!",
+  //       gradient: const [Color(0xFF18DCFF), Color(0xFF7D5FFF)],
+  //       icon: Icons.nightlife_rounded,
+  //       category: 'Новости',
+  //     ),
+  //   ];
+  @override
+  void initState() {
+    super.initState();
+    api.fetchPromotions().then((value) {
+      setStateSafe(() {
+        promotions = value;
+      });
+    });
+  }
 
   Future<void> _refresh() async {
     if (_isRefreshing) return;
-    setState(() => _isRefreshing = true);
+    setStateSafe(() => _isRefreshing = true);
 
     // имитация обновления (подключи API — и просто обнови promotions)
     await Future.delayed(const Duration(milliseconds: 700));
 
-    if (!mounted) return;
-    setState(() => _isRefreshing = false);
+    setStateSafe(() => _isRefreshing = false);
   }
 
   List<Promotion> get _filtered {
@@ -130,19 +143,20 @@ class _NewsScreenState extends State<NewsScreen> {
                   _FilterChip(
                     label: 'Все',
                     selected: _selectedFilter == 'Все',
-                    onTap: () => setState(() => _selectedFilter = 'Все'),
+                    onTap: () => setStateSafe(() => _selectedFilter = 'Все'),
                   ),
                   const SizedBox(width: 8),
                   _FilterChip(
                     label: 'Акции',
                     selected: _selectedFilter == 'Акции',
-                    onTap: () => setState(() => _selectedFilter = 'Акции'),
+                    onTap: () => setStateSafe(() => _selectedFilter = 'Акции'),
                   ),
                   const SizedBox(width: 8),
                   _FilterChip(
                     label: 'Новости',
                     selected: _selectedFilter == 'Новости',
-                    onTap: () => setState(() => _selectedFilter = 'Новости'),
+                    onTap: () =>
+                        setStateSafe(() => _selectedFilter = 'Новости'),
                   ),
                 ],
               ),
@@ -260,7 +274,7 @@ void _openPromoDetails(BuildContext context, Promotion promo) {
                             Container(
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.08),
+                                color: Colors.white.withValues(alpha: 0.08),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Icon(
@@ -294,11 +308,11 @@ void _openPromoDetails(BuildContext context, Promotion promo) {
                                 loadingBuilder: (ctx, child, ev) {
                                   if (ev == null) return child;
                                   return Container(
-                                    color: Colors.white.withOpacity(0.06),
+                                    color: Colors.white.withValues(alpha: 0.06),
                                   );
                                 },
                                 errorBuilder: (_, __, ___) => Container(
-                                  color: Colors.white.withOpacity(0.06),
+                                  color: Colors.white.withValues(alpha: 0.06),
                                   alignment: Alignment.center,
                                   child: const Icon(
                                     Icons.broken_image,
@@ -361,26 +375,8 @@ void _openPromoDetails(BuildContext context, Promotion promo) {
   );
 }
 
-class MeasureSize extends SingleChildRenderObjectWidget {
-  final ValueChanged<Size> onChange;
-  const MeasureSize({super.key, required this.onChange, required Widget child})
-    : super(child: child);
-
-  @override
-  RenderObject createRenderObject(BuildContext context) =>
-      _RenderMeasureSize(onChange);
-
-  @override
-  void updateRenderObject(
-    BuildContext context,
-    covariant _RenderMeasureSize ro,
-  ) {
-    ro.onChange = onChange;
-  }
-}
-
-class _RenderMeasureSize extends RenderProxyBox {
-  _RenderMeasureSize(this.onChange);
+class RenderMeasureSize extends RenderProxyBox {
+  RenderMeasureSize(this.onChange);
   ValueChanged<Size> onChange;
   Size? _old;
 
@@ -393,6 +389,24 @@ class _RenderMeasureSize extends RenderProxyBox {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       onChange(newSize);
     });
+  }
+}
+
+class MeasureSize extends SingleChildRenderObjectWidget {
+  final ValueChanged<Size> onChange;
+  const MeasureSize({super.key, required this.onChange, required Widget child})
+    : super(child: child);
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      RenderMeasureSize(onChange);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    covariant RenderMeasureSize renderObject,
+  ) {
+    renderObject.onChange = onChange;
   }
 }
 
@@ -416,12 +430,12 @@ class _FilterChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected
               ? const Color(0xFF6C5CE7)
-              : Colors.white.withOpacity(0.06),
+              : Colors.white.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
             color: selected
                 ? const Color(0xFF6C5CE7)
-                : Colors.white.withOpacity(0.08),
+                : Colors.white.withValues(alpha: 0.08),
           ),
         ),
         child: Text(
@@ -447,9 +461,9 @@ class _InfoPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.08),
+        color: Colors.white.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
