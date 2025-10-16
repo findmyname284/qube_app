@@ -182,11 +182,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: QubeAppBar(
-        title: "Регистрация",
-        icon: Icons.person_add_rounded,
-        showBackButton: true,
-      ),
+      appBar: QubeAppBar(title: "Регистрация", icon: Icons.person_add_rounded),
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -453,7 +449,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               style: TextStyle(color: Colors.white70),
                             ),
                             GestureDetector(
-                              onTap: () => Navigator.pushReplacement(
+                              onTap: () => Navigator.push(
                                 context,
                                 MaterialPageRoute(
                                   builder: (context) => const LoginScreen(),

@@ -34,26 +34,23 @@ class ZoneChips extends StatelessWidget {
                 ),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(999),
-                  gradient: isSel
-                      ? const LinearGradient(
-                          colors: [Color(0xFF23233A), Color(0xFF2A2B45)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        )
-                      : null,
-                  color: isSel ? null : const Color(0xFF15161F),
+                  color: isSel
+                      ? const Color(0xFF6C5CE7)
+                      : Colors.white.withOpacity(0.06),
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: .08),
+                    color: isSel
+                        ? const Color(0xFF6C5CE7)
+                        : Colors.white.withOpacity(0.08),
                   ),
                   boxShadow: isSel
                       ? [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: .25),
-                            blurRadius: 10,
+                            color: const Color(0xFF6C5CE7).withOpacity(0.35),
+                            blurRadius: 14,
                             offset: const Offset(0, 6),
                           ),
                         ]
-                      : null,
+                      : [],
                 ),
                 child: Text(
                   _label(z),

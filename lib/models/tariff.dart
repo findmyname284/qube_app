@@ -1,5 +1,3 @@
-import 'package:flutter/material.dart';
-
 class Tariff {
   final String id;
   final String title;
@@ -50,17 +48,3 @@ class Tariff {
     );
   }
 }
-
-// ---- Хелперы (локально, чтобы красиво показать пользователю окно) ----
-TimeOfDay? _parseHm(String? s) {
-  if (s == null || s.isEmpty) return null;
-  final parts = s.split(':');
-  if (parts.length != 2) return null;
-  final h = int.tryParse(parts[0]);
-  final m = int.tryParse(parts[1]);
-  if (h == null || m == null) return null;
-  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
-  return TimeOfDay(hour: h, minute: m);
-}
-
-String _hmPretty(String? s) => s ?? '';

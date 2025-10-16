@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:qube/models/booking.dart';
 import 'package:qube/models/computer.dart';
@@ -252,16 +253,21 @@ class ApiService {
           final m = (e as Map).cast<String, dynamic>();
           // сервер дублирует поля под клиент:
           // title, description, imageUrl, endDate (ISO)
+          final category = (m['category'] ?? 'Акции') as String;
           return Promotion(
             id: m['id'] as String?,
             title: (m['title'] ?? '') as String,
             description: (m['description'] ?? '') as String,
             imageUrl: m['imageUrl'] as String?,
+            category: category,
             // если в модели Promotion endDate: DateTime?
             endDate:
                 (m['endDate'] is String && (m['endDate'] as String).isNotEmpty)
                 ? DateTime.parse(m['endDate'] as String).toLocal()
                 : null,
+            icon: category != 'Акции'
+                ? Icons.campaign_rounded
+                : Icons.local_offer_rounded,
             // gradient/иконку ты задаёшь на клиенте — опционально
           );
         }).toList();
@@ -488,6 +494,30 @@ class ApiService {
       if (e.statusCode == 404) {
         throw ApiException('Нет брони для отмены', statusCode: 404);
       }
+      rethrow;
+    } on SocketException catch (e) {
+      throw ApiException('Нет соединения с сервером', inner: e);
+    }
+  }
+
+  Future<Profile?> topUpBalance(int amount, {String source = 'app'}) async {
+    final token = await AuthStorage.getToken();
+    if (token == null) throw ApiException('Пользователь не авторизован');
+    try {
+      final uri = Uri.parse('$baseUrl/wallet/topup');
+      final resp = await _client
+          .post(
+            uri,
+            headers: _baseHeaders(token: token),
+            body: jsonEncode({"amount": amount, "source": source}),
+          )
+          .timeout(_timeout);
+
+      return _handle<Profile>(
+        resp,
+        (json) => Profile.fromJson(json as Map<String, dynamic>),
+      );
+    } on ApiException {
       rethrow;
     } on SocketException catch (e) {
       throw ApiException('Нет соединения с сервером', inner: e);

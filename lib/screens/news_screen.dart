@@ -1,10 +1,10 @@
 // lib/screens/news_screen.dart
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:qube/models/promotion.dart';
 import 'package:qube/services/api_service.dart';
 import 'package:qube/utils/helper.dart';
-import 'package:qube/widgets/promotion_card.dart';
 import 'package:qube/widgets/qubebar.dart';
 
 final api = ApiService.instance;
@@ -18,88 +18,62 @@ class NewsScreen extends StatefulWidget {
 
 class _NewsScreenState extends State<NewsScreen> {
   bool _isRefreshing = false;
+  bool _isLoading = true;
   String _selectedFilter = 'Все';
+  String _query = '';
   List<Promotion> promotions = [];
 
-  // демо-данные
-  //   late List<Promotion> promotions = [
-  //     Promotion(
-  //       title: "4+3 Абонемент + Energy",
-  //       description: "Купи тариф 4+3 и получи 1 Tassay Energy бесплатно!",
-  //       imageUrl: "https://imageproxy.wolt.com/assets/685ed326f43200b6b5209f2a",
-  //       gradient: const [Color(0xFF6C5CE7), Color(0xFFA363D9)],
-  //       icon: Icons.local_offer_rounded,
-  //       category: 'Акции',
-  //     ),
-  //     Promotion(
-  //       title: "Конкурс пополнений",
-  //       description:
-  //           "Пополни аккаунт на 5000₸ и участвуй в розыгрыше:\n"
-  //           "• 🎧 Marshall накладные\n"
-  //           "• 🎶 Marshall как AirPods\n"
-  //           "• 🖱️ VGN Dragonfly",
-  //       imageUrl:
-  //           "https://pspdf.kz/image/catalog/products/zvuk/marshall-motif-ii/1.jpg",
-  //       endDate: DateTime(2025, 10, 31),
-  //       gradient: const [Color(0xFFFF9A8B), Color(0xFFFF6A88), Color(0xFF5F2C82)],
-  //       icon: Icons.celebration_rounded,
-  //       category: 'Акции',
-  //     ),
-  //     Promotion(
-  //       title: "Ночной тариф",
-  //       description: "С 00:00 до 08:00 специальные цены для ночных геймеров!",
-  //       gradient: const [Color(0xFF18DCFF), Color(0xFF7D5FFF)],
-  //       icon: Icons.nightlife_rounded,
-  //       category: 'Новости',
-  //     ),
-  //   ];
   @override
   void initState() {
     super.initState();
-    api.fetchPromotions().then((value) {
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final list = await api.fetchPromotions();
       setStateSafe(() {
-        promotions = value;
+        promotions = list;
+        _isLoading = false;
       });
-    });
+    } catch (_) {
+      // даже если ошибка — убираем лоадер, чтобы показать пустой стейт
+      setStateSafe(() => _isLoading = false);
+    }
   }
 
   Future<void> _refresh() async {
     if (_isRefreshing) return;
     setStateSafe(() => _isRefreshing = true);
-
-    // имитация обновления (подключи API — и просто обнови promotions)
-    await Future.delayed(const Duration(milliseconds: 700));
-
+    await _load();
     setStateSafe(() => _isRefreshing = false);
   }
 
   List<Promotion> get _filtered {
-    if (_selectedFilter == 'Все') return promotions;
-    return promotions
-        .where((p) => (p.category ?? 'Акции') == _selectedFilter)
-        .toList();
+    Iterable<Promotion> list = promotions;
+    if (_selectedFilter != 'Все') {
+      list = list.where((p) => (p.category ?? 'Акции') == _selectedFilter);
+    }
+    if (_query.trim().isNotEmpty) {
+      final q = _query.trim().toLowerCase();
+      list = list.where(
+        (p) =>
+            p.title.toLowerCase().contains(q) ||
+            (p.description).toLowerCase().contains(q),
+      );
+    }
+    return list.toList();
   }
 
   @override
   Widget build(BuildContext context) {
+    final items = _filtered;
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: QubeAppBar(
         title: "Новости и акции",
         icon: Icons.newspaper_rounded,
-        // bottom: PreferredSize(
-        //   preferredSize: const Size.fromHeight(2.5),
-        //   child: AnimatedContainer(
-        //     duration: const Duration(milliseconds: 250),
-        //     height: _isRefreshing ? 2.5 : 0,
-        //     child: _isRefreshing
-        //         ? const LinearProgressIndicator(
-        //             backgroundColor: Colors.transparent,
-        //             minHeight: 2.5,
-        //           )
-        //         : const SizedBox.shrink(),
-        //   ),
-        // ),
         actions: [
           IconButton(
             icon: const Icon(Icons.notifications_active_rounded),
@@ -109,7 +83,7 @@ class _NewsScreenState extends State<NewsScreen> {
       ),
       body: Container(
         decoration: const BoxDecoration(
-          // фон в стиле остальных экранов
+          // общий фон
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
@@ -120,68 +94,125 @@ class _NewsScreenState extends State<NewsScreen> {
           onRefresh: _refresh,
           color: Colors.white,
           backgroundColor: const Color(0xFF6C5CE7),
-          child: ListView(
-            padding: EdgeInsets.only(
-              bottom: kBottomNavigationBarHeight + 24,
-              top: 12,
-              left: 16,
-              right: 16,
-            ),
-            children: [
-              // шапка секции + фильтры
-              Row(
-                children: [
-                  const Text(
-                    "Актуальное",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                    ),
+          child: CustomScrollView(
+            slivers: [
+              // Параллакс-шапка
+              SliverToBoxAdapter(
+                child: _ParallaxHeader(
+                  isRefreshing: _isRefreshing,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        "Актуальное",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      _SearchField(
+                        hint: 'Поиск по новостям…',
+                        onChanged: (v) => setStateSafe(() => _query = v),
+                      ),
+                      const SizedBox(height: 12),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            _FilterPill(
+                              label: 'Все',
+                              selected: _selectedFilter == 'Все',
+                              onTap: () =>
+                                  setStateSafe(() => _selectedFilter = 'Все'),
+                            ),
+                            const SizedBox(width: 8),
+                            _FilterPill(
+                              label: 'Акции',
+                              selected: _selectedFilter == 'Акции',
+                              onTap: () =>
+                                  setStateSafe(() => _selectedFilter = 'Акции'),
+                            ),
+                            const SizedBox(width: 8),
+                            _FilterPill(
+                              label: 'Новости',
+                              selected: _selectedFilter == 'Новости',
+                              onTap: () => setStateSafe(
+                                () => _selectedFilter = 'Новости',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  const Spacer(),
-                  _FilterChip(
-                    label: 'Все',
-                    selected: _selectedFilter == 'Все',
-                    onTap: () => setStateSafe(() => _selectedFilter = 'Все'),
-                  ),
-                  const SizedBox(width: 8),
-                  _FilterChip(
-                    label: 'Акции',
-                    selected: _selectedFilter == 'Акции',
-                    onTap: () => setStateSafe(() => _selectedFilter = 'Акции'),
-                  ),
-                  const SizedBox(width: 8),
-                  _FilterChip(
-                    label: 'Новости',
-                    selected: _selectedFilter == 'Новости',
-                    onTap: () =>
-                        setStateSafe(() => _selectedFilter = 'Новости'),
-                  ),
-                ],
+                ),
               ),
-              const SizedBox(height: 12),
 
-              // список карточек
-              ...List.generate(_filtered.length, (index) {
-                final promo = _filtered[index];
-                return AnimatedPadding(
-                  duration: const Duration(milliseconds: 250),
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: TweenAnimationBuilder<double>(
-                    duration: Duration(milliseconds: 250 + index * 70),
-                    tween: Tween(begin: 0.96, end: 1.0),
-                    curve: Curves.easeOutCubic,
-                    builder: (_, scale, child) =>
-                        Transform.scale(scale: scale, child: child),
-                    child: PromotionCard(
-                      promo: promo,
-                      onMore: () => _openPromoDetails(context, promo),
+              // Контент: лоадер / пусто / грид с карточками
+              if (_isLoading)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  sliver: SliverGrid(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, i) => const _PromoSkeleton(),
+                      childCount: 6,
                     ),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                          childAspectRatio: 0.86,
+                        ),
                   ),
-                );
-              }),
-              const SizedBox(height: 8),
+                )
+              else if (items.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: _EmptyState(
+                    title: (_query.isNotEmpty || _selectedFilter != 'Все')
+                        ? 'Ничего не найдено'
+                        : 'Пока пусто',
+                    subtitle: (_query.isNotEmpty || _selectedFilter != 'Все')
+                        ? 'Попробуй изменить запрос или фильтры'
+                        : 'Загляни позже — скоро будут анонсы!',
+                    actionLabel: 'Сбросить',
+                    onAction: (_query.isNotEmpty || _selectedFilter != 'Все')
+                        ? () => setStateSafe(() {
+                            _query = '';
+                            _selectedFilter = 'Все';
+                          })
+                        : null,
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: EdgeInsets.only(
+                    left: 16,
+                    right: 16,
+                    top: 8,
+                    bottom: kBottomNavigationBarHeight + 24,
+                  ),
+                  sliver: SliverGrid(
+                    delegate: SliverChildBuilderDelegate((context, i) {
+                      final promo = items[i];
+                      return _FancyPromoCard(
+                        promo: promo,
+                        onTap: () => _openPromoDetails(context, promo),
+                        indexSeed: i,
+                      );
+                    }, childCount: items.length),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                          childAspectRatio: 0.86,
+                        ),
+                  ),
+                ),
             ],
           ),
         ),
@@ -190,10 +221,499 @@ class _NewsScreenState extends State<NewsScreen> {
   }
 }
 
+/// ———————————————————————————————
+/// Стильная карточка промо
+/// ———————————————————————————————
+class _FancyPromoCard extends StatelessWidget {
+  final Promotion promo;
+  final VoidCallback onTap;
+  final int indexSeed;
+
+  const _FancyPromoCard({
+    required this.promo,
+    required this.onTap,
+    required this.indexSeed,
+  });
+
+  List<Color> _autoGradient(int seed) {
+    // fallback-градиент, если в модели нет gradient
+    const presets = [
+      [Color(0xFF6C5CE7), Color(0xFFA363D9)],
+      [Color(0xFFFF9A8B), Color(0xFFFF6A88)],
+      [Color(0xFF18DCFF), Color(0xFF7D5FFF)],
+      [Color(0xFF00B894), Color(0xFF00CEC9)],
+    ];
+    return presets[seed % presets.length];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final grad = (promo.gradient?.cast<Color>() ?? _autoGradient(indexSeed));
+    final hasImage = promo.imageUrl?.isNotEmpty == true;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: grad,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: grad.last.withOpacity(0.22),
+              blurRadius: 18,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          children: [
+            // фоновая картинка (если есть)
+            if (hasImage)
+              Positioned.fill(
+                child: ColorFiltered(
+                  colorFilter: ColorFilter.mode(
+                    Colors.black.withOpacity(0.25),
+                    BlendMode.darken,
+                  ),
+                  child: Image.network(
+                    promo.imageUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    loadingBuilder: (ctx, child, progress) {
+                      if (progress == null) return child;
+                      return const SizedBox.shrink();
+                    },
+                  ),
+                ),
+              ),
+
+            // мягкая стеклянная подложка
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withOpacity(0.24),
+                      Colors.black.withOpacity(0.55),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // контент
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // шапка: иконка + бейдж категории/даты
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.08),
+                          ),
+                        ),
+                        child: Icon(
+                          promo.icon ?? Icons.campaign_rounded,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const Spacer(),
+                      if (promo.endDate != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.25),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.12),
+                            ),
+                          ),
+                          child: Text(
+                            "до ${promo.endDate!.day}.${promo.endDate!.month}",
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  // заголовок
+                  Text(
+                    promo.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16.5,
+                      fontWeight: FontWeight.w800,
+                      height: 1.2,
+                    ),
+                  ),
+                  const Spacer(),
+                  // описание-тизер
+                  Text(
+                    promo.description,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12.5,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  // кнопка "Подробнее"
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        "Подробнее",
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.95),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const Spacer(),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// ———————————————————————————————
+/// Параллакс-Header + тонкая полоска прогресса
+/// ———————————————————————————————
+class _ParallaxHeader extends StatelessWidget {
+  final Widget child;
+  final bool isRefreshing;
+
+  const _ParallaxHeader({required this.child, required this.isRefreshing});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        // фон со стеклом
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      const Color(0xFF6C5CE7).withOpacity(0.22),
+                      const Color(0xFF1E1F2E).withOpacity(0.30),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: Colors.white.withOpacity(0.06)),
+                ),
+                child: child,
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 16,
+          right: 16,
+          top: 12,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 250),
+            height: isRefreshing ? 2.5 : 0,
+            child: isRefreshing
+                ? const LinearProgressIndicator(
+                    backgroundColor: Colors.transparent,
+                    minHeight: 2.5,
+                    color: Colors.white,
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// ———————————————————————————————
+/// Поисковое поле в стиле стекла
+/// ———————————————————————————————
+class _SearchField extends StatelessWidget {
+  final String hint;
+  final ValueChanged<String> onChanged;
+  const _SearchField({required this.hint, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      onChanged: onChanged,
+      style: const TextStyle(color: Colors.white),
+      cursorColor: Colors.white70,
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: const TextStyle(color: Colors.white54),
+        prefixIcon: const Icon(Icons.search_rounded, color: Colors.white70),
+        filled: true,
+        fillColor: Colors.white.withOpacity(0.06),
+        contentPadding: const EdgeInsets.symmetric(
+          vertical: 14,
+          horizontal: 12,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: Color(0xFF6C5CE7), width: 1),
+        ),
+      ),
+    );
+  }
+}
+
+/// ———————————————————————————————
+/// Фильтр-чипы (анимированные пилюли)
+/// ———————————————————————————————
+class _FilterPill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _FilterPill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected
+              ? const Color(0xFF6C5CE7)
+              : Colors.white.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected
+                ? const Color(0xFF6C5CE7)
+                : Colors.white.withOpacity(0.08),
+          ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF6C5CE7).withOpacity(0.35),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ]
+              : [],
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? Colors.white : Colors.white70,
+            fontWeight: FontWeight.w700,
+            fontSize: 12,
+            letterSpacing: 0.2,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// ———————————————————————————————
+/// Шимер-скелетон карточки
+/// ———————————————————————————————
+class _PromoSkeleton extends StatefulWidget {
+  const _PromoSkeleton();
+
+  @override
+  State<_PromoSkeleton> createState() => _PromoSkeletonState();
+}
+
+class _PromoSkeletonState extends State<_PromoSkeleton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  )..repeat(reverse: true);
+  @override
+  void dispose() {
+    c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: c,
+      builder: (_, __) {
+        final t = (0.6 + 0.4 * c.value);
+        return Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: LinearGradient(
+              colors: [
+                Colors.white.withOpacity(0.04 * t),
+                Colors.white.withOpacity(0.08 * t),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            border: Border.all(color: Colors.white.withOpacity(0.06)),
+          ),
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            children: [
+              Align(
+                alignment: Alignment.topLeft,
+                child: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.08 * t),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                height: 16,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.12 * t),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                height: 12,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.08 * t),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+              const Spacer(),
+              Container(
+                height: 12,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.10 * t),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// ———————————————————————————————
+/// Пустой стейт
+/// ———————————————————————————————
+class _EmptyState extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+  const _EmptyState({
+    required this.title,
+    required this.subtitle,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.sentiment_satisfied_rounded,
+              color: Colors.white38,
+              size: 42,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              subtitle,
+              style: const TextStyle(color: Colors.white70),
+              textAlign: TextAlign.center,
+            ),
+            if (actionLabel != null) ...[
+              const SizedBox(height: 12),
+              TextButton(onPressed: onAction, child: Text(actionLabel!)),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// ———————————————————————————————
+/// Bottom Sheet с адаптивной высотой (твоя логика)
+/// ———————————————————————————————
 void _openPromoDetails(BuildContext context, Promotion promo) {
-  const double kMinGlobal = 0.25; // минимум 25%
-  const double kMaxGlobal = 0.90; // глобальный потолок
-  const double kHeadroom = 0.05; // +5% запаса над контентом
+  const double kMinGlobal = 0.25;
+  const double kMaxGlobal = 0.90;
+  const double kHeadroom = 0.05;
 
   final dragCtrl = DraggableScrollableController();
 
@@ -206,9 +726,8 @@ void _openPromoDetails(BuildContext context, Promotion promo) {
       borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
     ),
     builder: (context) {
-      // локальные параметры, которые будем обновлять после измерения
       double minSize = kMinGlobal;
-      double targetSize = 0.5; // стартовая догадка
+      double targetSize = 0.5;
       double maxSize = (targetSize + kHeadroom).clamp(targetSize, kMaxGlobal);
 
       return StatefulBuilder(
@@ -229,20 +748,18 @@ void _openPromoDetails(BuildContext context, Promotion promo) {
                 padding: const EdgeInsets.all(16),
                 child: MeasureSize(
                   onChange: (size) {
-                    // фактическая высота контента (плюс небольшой запас)
                     final contentH = size.height + 28;
                     final contentRatio = (contentH / screenH).clamp(
                       kMinGlobal,
                       kMaxGlobal,
                     );
 
-                    final newTarget = contentRatio; // открыть "по контенту"
+                    final newTarget = contentRatio;
                     final newMax = (newTarget + kHeadroom).clamp(
                       newTarget,
                       kMaxGlobal,
-                    ); // контент+запас, но <= 90%
+                    );
 
-                    // обновляем только при заметном отличии, чтобы избежать зацикливания
                     final changed =
                         (newTarget - targetSize).abs() > 0.01 ||
                         (newMax - maxSize).abs() > 0.01;
@@ -251,7 +768,6 @@ void _openPromoDetails(BuildContext context, Promotion promo) {
                       setSheetState(() {
                         targetSize = newTarget;
                         maxSize = newMax;
-                        // min фиксированный (25%)
                       });
 
                       if (dragCtrl.isAttached) {
@@ -265,16 +781,14 @@ void _openPromoDetails(BuildContext context, Promotion promo) {
                   },
                   child: IntrinsicHeight(
                     child: Column(
-                      mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // заголовок
                         Row(
                           children: [
                             Container(
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.08),
+                                color: Colors.white.withOpacity(0.08),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Icon(
@@ -308,11 +822,11 @@ void _openPromoDetails(BuildContext context, Promotion promo) {
                                 loadingBuilder: (ctx, child, ev) {
                                   if (ev == null) return child;
                                   return Container(
-                                    color: Colors.white.withValues(alpha: 0.06),
+                                    color: Colors.white.withOpacity(0.06),
                                   );
                                 },
                                 errorBuilder: (_, __, ___) => Container(
-                                  color: Colors.white.withValues(alpha: 0.06),
+                                  color: Colors.white.withOpacity(0.06),
                                   alignment: Alignment.center,
                                   child: const Icon(
                                     Icons.broken_image,
@@ -350,16 +864,6 @@ void _openPromoDetails(BuildContext context, Promotion promo) {
                                 child: const Text("Закрыть"),
                               ),
                             ),
-                            const SizedBox(width: 12),
-                            // Expanded(
-                            //   child: ElevatedButton.icon(
-                            //     onPressed: () {
-                            //       /* действие */
-                            //     },
-                            //     icon: const Icon(Icons.local_activity_rounded),
-                            //     label: const Text("Участвовать"),
-                            //   ),
-                            // ),
                           ],
                         ),
                       ],
@@ -375,6 +879,9 @@ void _openPromoDetails(BuildContext context, Promotion promo) {
   );
 }
 
+/// ———————————————————————————————
+/// MeasureSize (как у тебя)
+/// ———————————————————————————————
 class RenderMeasureSize extends RenderProxyBox {
   RenderMeasureSize(this.onChange);
   ValueChanged<Size> onChange;
@@ -410,47 +917,9 @@ class MeasureSize extends SingleChildRenderObjectWidget {
   }
 }
 
-class _FilterChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _FilterChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(999),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected
-              ? const Color(0xFF6C5CE7)
-              : Colors.white.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: selected
-                ? const Color(0xFF6C5CE7)
-                : Colors.white.withValues(alpha: 0.08),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? Colors.white : Colors.white70,
-            fontWeight: FontWeight.w600,
-            fontSize: 12,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
+/// ———————————————————————————————
+/// Инфо-пилюля
+/// ———————————————————————————————
 class _InfoPill extends StatelessWidget {
   final IconData icon;
   final String text;
@@ -461,9 +930,9 @@ class _InfoPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.08),
+        color: Colors.white.withOpacity(0.08),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
