@@ -4,11 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qube/models/computer.dart';
 import 'package:qube/models/me.dart';
-import 'package:qube/models/tariff.dart';
-import 'package:qube/screens/bookings_screen.dart';
-import 'package:qube/screens/computers_screen.dart';
-import 'package:qube/screens/news_screen.dart';
-import 'package:qube/screens/profile_screen.dart';
+import 'package:qube/screens/profile/models/tariff.dart';
+import 'package:qube/screens/bookings/bookings_screen.dart';
+import 'package:qube/screens/computers/computers_screen.dart';
+import 'package:qube/screens/news/news_screen.dart';
+import 'package:qube/screens/profile/profile_screen.dart';
+import 'package:qube/screens/qr_auth_screen.dart';
 import 'package:qube/screens/splash_screen.dart';
 import 'package:qube/services/api_service.dart';
 import 'package:qube/utils/app_snack.dart';
@@ -39,7 +40,6 @@ class QubeApp extends StatelessWidget {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       cardTheme: CardThemeData(
-        // color: const Color(0xFF161821),
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         margin: EdgeInsets.zero,
@@ -52,7 +52,7 @@ class QubeApp extends StatelessWidget {
         height: 72,
         elevation: 0,
         backgroundColor: Colors.transparent,
-        indicatorColor: colorSchemeDark.primary.withValues(alpha: 0.18),
+        indicatorColor: colorSchemeDark.primary.withAlpha(46), // 0.18 ~ 46/255
         iconTheme: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
             return IconThemeData(color: colorSchemeDark.primary);
@@ -90,84 +90,75 @@ class QubeApp extends StatelessWidget {
 }
 
 class MainPage extends StatefulWidget {
-  final List<Computer> computers;
+  final List<Computer>? computers;
   final Profile? profile;
   final List<Tariff>? tariffs;
-  const MainPage({
-    super.key,
-    required this.computers,
-    this.profile,
-    this.tariffs,
-  });
+
+  const MainPage({super.key, this.computers, this.profile, this.tariffs});
 
   @override
   State<MainPage> createState() => _MainPageState();
 }
 
 class _MainPageState extends State<MainPage> {
-  final PageController _pageController = PageController();
+  late final PageController _pageController;
   int _currentIndex = 0;
   bool _disableSwipe = false;
-  Profile? _profile;
+  // Сделали профиль реактивным
+  late final ValueNotifier<Profile?> _profileNotifier;
   bool _isMapView = false;
   bool _showFab = true;
 
-  bool get _isLoggedIn => _profile != null;
+  bool get _isLoggedIn => _profileNotifier.value != null;
 
   @override
   void initState() {
     super.initState();
-    _profile = widget.profile;
+    _profileNotifier = ValueNotifier<Profile?>(widget.profile);
+    _pageController = PageController(initialPage: _currentIndex);
   }
 
   @override
   void dispose() {
     _pageController.dispose();
-    api.close();
+    _profileNotifier.dispose();
     super.dispose();
   }
 
-  void _onMapModeChanged(bool isMap) {
+  // --- State mutation helpers ---
+  void _setMapMode(bool isMap) {
     setStateSafe(() {
       _isMapView = isMap;
       _disableSwipe = isMap;
     });
   }
 
-  void _onFabVisibilityChanged(bool visible) {
+  void _setFabVisible(bool visible) {
     setStateSafe(() {
       _showFab = visible;
     });
   }
 
   void _onLoggedIn(Profile p) {
-    setStateSafe(() {
-      _profile = p;
-      if (_currentIndex >= 3) {
-        _currentIndex = 3;
-        _pageController.animateToPage(
-          3,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
-        );
-        _pageController.jumpToPage(3);
-      }
-    });
+    // обновляем reactive профиль
+    _profileNotifier.value = p;
+
+    // сохраняем индекс и при необходимости переходим
+    if (_currentIndex >= (_isLoggedIn ? 4 : 2)) {
+      _goToPage(_isLoggedIn ? 4 : 2); // Переходим на профиль
+    } else {
+      // если нужно — просто обновить UI
+      setStateSafe(() {});
+    }
   }
 
   void _onLoggedOut() {
-    setStateSafe(() {
-      _profile = null;
-      if (_currentIndex >= 2) {
-        _currentIndex = 0;
-        _pageController.animateToPage(
-          0,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
-        );
-        _pageController.jumpToPage(0);
-      }
-    });
+    _profileNotifier.value = null;
+    if (_currentIndex >= 2) {
+      _goToPage(0);
+    } else {
+      setStateSafe(() {});
+    }
   }
 
   void _toggleMapView() {
@@ -177,168 +168,210 @@ class _MainPageState extends State<MainPage> {
     });
   }
 
+  void _goToPage(int index) {
+    if (!mounted) return;
+    setStateSafe(() => _currentIndex = index);
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeInOut,
+    );
+  }
+
+  List<Widget> _buildScreens(Profile? currentProfile) {
+    if (_isLoggedIn) {
+      // Авторизован: 5 экранов
+      return [
+        ComputersScreen(
+          key: const ValueKey('computers'),
+          computers: widget.computers ?? [],
+          isMapView: _isMapView,
+          onMapModeChanged: _setMapMode,
+          onToggleView: _toggleMapView,
+          onFabVisibilityChanged: _setFabVisible,
+        ),
+        const NewsScreen(key: ValueKey('news')),
+        QrScanScreen(
+          // Новый экран QR-авторизации
+          key: const ValueKey('qr_auth'),
+        ),
+        const BookingsScreen(key: ValueKey('bookings')),
+        ProfileScreen(
+          key: const ValueKey('profile'),
+          profile: currentProfile,
+          onLoggedIn: _onLoggedIn,
+          onLoggedOut: _onLoggedOut,
+        ),
+      ];
+    } else {
+      // Не авторизован: 3 экрана
+      return [
+        ComputersScreen(
+          key: const ValueKey('computers'),
+          computers: widget.computers,
+          isMapView: _isMapView,
+          onMapModeChanged: _setMapMode,
+          onToggleView: _toggleMapView,
+          onFabVisibilityChanged: _setFabVisible,
+        ),
+        const NewsScreen(key: ValueKey('news')),
+        ProfileScreen(
+          key: const ValueKey('profile'),
+          profile: currentProfile,
+          onLoggedIn: _onLoggedIn,
+          onLoggedOut: _onLoggedOut,
+        ),
+      ];
+    }
+  }
+
+  List<NavigationDestination> _buildNavDestinations(bool loggedIn) {
+    if (loggedIn) {
+      // Авторизован: 5 пунктов
+      return const [
+        NavigationDestination(
+          icon: Icon(Icons.computer_outlined),
+          selectedIcon: Icon(Icons.computer),
+          label: 'Компы',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.newspaper_outlined),
+          selectedIcon: Icon(Icons.newspaper),
+          label: 'Новости',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.qr_code_2_outlined),
+          selectedIcon: Icon(Icons.qr_code_2),
+          label: 'QR',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.book_online_outlined),
+          selectedIcon: Icon(Icons.book_online),
+          label: 'Брони',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.person_outline),
+          selectedIcon: Icon(Icons.person),
+          label: 'Профиль',
+        ),
+      ];
+    } else {
+      // Не авторизован: 3 пункта с QR в центре
+      return const [
+        NavigationDestination(
+          icon: Icon(Icons.computer_outlined),
+          selectedIcon: Icon(Icons.computer),
+          label: 'Компы',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.newspaper_outlined),
+          selectedIcon: Icon(Icons.newspaper),
+          label: 'Новости',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.person_outline),
+          selectedIcon: Icon(Icons.person),
+          label: 'Профиль',
+        ),
+      ];
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final screens = _isLoggedIn
-        ? [
-            ComputersScreen(
-              computers: widget.computers,
-              isMapView: _isMapView,
-              onMapModeChanged: _onMapModeChanged,
-              onToggleView: _toggleMapView,
-              onFabVisibilityChanged: _onFabVisibilityChanged,
-            ),
-            const NewsScreen(),
-            const BookingsScreen(),
-            ProfileScreen(
-              tariffs: widget.tariffs,
-              profile: widget.profile,
-              onLoggedIn: _onLoggedIn,
-              onLoggedOut: _onLoggedOut,
-            ),
-          ]
-        : [
-            ComputersScreen(
-              computers: widget.computers,
-              isMapView: _isMapView,
-              onMapModeChanged: _onMapModeChanged,
-              onToggleView: _toggleMapView,
-              onFabVisibilityChanged: _onFabVisibilityChanged,
-            ),
-            const NewsScreen(),
-            ProfileScreen(
-              tariffs: widget.tariffs,
-              onLoggedIn: _onLoggedIn,
-              onLoggedOut: _onLoggedOut,
-            ),
-          ];
+    return ValueListenableBuilder<Profile?>(
+      valueListenable: _profileNotifier,
+      builder: (context, currentProfile, _) {
+        final screens = _buildScreens(currentProfile);
+        final navDestinations = _buildNavDestinations(currentProfile != null);
 
-    final navDestinations = _isLoggedIn
-        ? const [
-            NavigationDestination(
-              icon: Icon(Icons.computer_outlined),
-              selectedIcon: Icon(Icons.computer),
-              label: 'Компьютеры',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.newspaper_outlined),
-              selectedIcon: Icon(Icons.newspaper),
-              label: 'Новости',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.book_online_outlined),
-              selectedIcon: Icon(Icons.book_online),
-              label: 'Брони',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.person_outline),
-              selectedIcon: Icon(Icons.person),
-              label: 'Профиль',
-            ),
-          ]
-        : const [
-            NavigationDestination(
-              icon: Icon(Icons.computer_outlined),
-              selectedIcon: Icon(Icons.computer),
-              label: 'Компьютеры',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.newspaper_outlined),
-              selectedIcon: Icon(Icons.newspaper),
-              label: 'Новости',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.person_outline),
-              selectedIcon: Icon(Icons.person),
-              label: 'Профиль',
-            ),
-          ];
-
-    return Scaffold(
-      extendBody: true,
-      body: SafeArea(
-        bottom: false,
-        child: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Color(0xFF0E0F13), Color(0xFF0E0F13), Color(0xFF0B0C10)],
-            ),
-          ),
-          child: PageView.builder(
-            itemCount: screens.length,
-            controller: _pageController,
-            physics: _disableSwipe
-                ? const NeverScrollableScrollPhysics()
-                : const BouncingScrollPhysics(
-                    parent: AlwaysScrollableScrollPhysics(),
-                  ),
-            onPageChanged: (index) => setStateSafe(() {
-              _currentIndex = index;
-              if (index != 0) {
-                _disableSwipe = false;
-                _isMapView = false;
-              }
-            }),
-            itemBuilder: (_, i) => AnimatedSwitcher(
-              duration: const Duration(milliseconds: 250),
-              switchInCurve: Curves.easeOut,
-              switchOutCurve: Curves.easeIn,
-              child: screens[i],
-            ),
-          ),
-        ),
-      ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: const Color(0xFF12131A).withAlpha(74),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white.withAlpha(10)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withAlpha(89),
-                      blurRadius: 22,
-                      offset: const Offset(0, 8),
-                    ),
+        return Scaffold(
+          extendBody: true,
+          body: SafeArea(
+            bottom: false,
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color(0xFF0E0F13),
+                    Color(0xFF0E0F13),
+                    Color(0xFF0B0C10),
                   ],
                 ),
-                child: NavigationBar(
-                  selectedIndex: _currentIndex,
-                  destinations: navDestinations,
-                  onDestinationSelected: (index) {
-                    setStateSafe(() => _currentIndex = index);
-                    _pageController.animateToPage(
-                      index,
-                      duration: const Duration(milliseconds: 260),
-                      curve: Curves.easeInOut,
-                    );
-                  },
+              ),
+              child: PageView.builder(
+                itemCount: screens.length,
+                controller: _pageController,
+                physics: _disableSwipe
+                    ? const NeverScrollableScrollPhysics()
+                    : const BouncingScrollPhysics(
+                        parent: AlwaysScrollableScrollPhysics(),
+                      ),
+                onPageChanged: (index) => setStateSafe(() {
+                  _currentIndex = index;
+                  if (index != 0) {
+                    _disableSwipe = false;
+                    _isMapView = false;
+                  }
+                }),
+                itemBuilder: (_, i) => AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 250),
+                  switchInCurve: Curves.easeOut,
+                  switchOutCurve: Curves.easeIn,
+                  child: screens[i],
                 ),
               ),
             ),
           ),
-        ),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      floatingActionButton: _currentIndex == 0 && _showFab
-          ? Container(
-              margin: const EdgeInsets.only(bottom: 72),
-              child: FloatingActionButton.extended(
-                onPressed: _toggleMapView,
-                icon: Icon(_isMapView ? Icons.list : Icons.explore),
-                label: Text(_isMapView ? 'Список компьютеров' : 'Обзор клуба'),
+          bottomNavigationBar: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF12131A).withAlpha(74),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.white.withAlpha(10)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withAlpha(89),
+                          blurRadius: 22,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: NavigationBar(
+                      selectedIndex: _currentIndex,
+                      destinations: navDestinations,
+                      onDestinationSelected: (index) => _goToPage(index),
+                    ),
+                  ),
+                ),
               ),
-            )
-          : null,
+            ),
+          ),
+          floatingActionButtonLocation:
+              FloatingActionButtonLocation.centerDocked,
+          floatingActionButton: _currentIndex == 0 && _showFab
+              ? Container(
+                  margin: const EdgeInsets.only(bottom: 72),
+                  child: FloatingActionButton.extended(
+                    onPressed: _toggleMapView,
+                    icon: Icon(_isMapView ? Icons.list : Icons.explore),
+                    label: Text(
+                      _isMapView ? 'Список компьютеров' : 'Обзор клуба',
+                    ),
+                  ),
+                )
+              : null,
+        );
+      },
     );
   }
 }

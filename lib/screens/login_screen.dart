@@ -43,8 +43,9 @@ class _LoginScreenState extends State<LoginScreen> {
         password: _passwordController.text,
       );
       if (mounted) {
-        if (userToken.token.isNotEmpty) {
-          AuthStorage.saveToken(userToken.token);
+        if (userToken.accessToken.isNotEmpty &&
+            userToken.refreshToken.isNotEmpty) {
+          AuthStorage.saveTokens(userToken.accessToken, userToken.refreshToken);
           _showSuccessAnimation();
         }
       }
@@ -99,7 +100,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     Future.delayed(const Duration(milliseconds: 1500), () {
       if (mounted) {
-        Navigator.pop(context); // Close dialog
+        Navigator.pop(context, true); // Close dialog
         Navigator.pop(context, true); // Return to previous screen
       }
     });

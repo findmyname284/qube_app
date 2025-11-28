@@ -1,9 +1,13 @@
 class UserToken {
-  final String token;
+  final String accessToken;
+  final String refreshToken;
 
-  UserToken({required this.token});
+  UserToken({required this.accessToken, required this.refreshToken});
 
   factory UserToken.fromJson(Map<String, dynamic> j) {
-    return UserToken(token: j['token'] as String);
+    return UserToken(
+      accessToken: j['access_token'] as String,
+      refreshToken: j['refresh_token'] as String,
+    );
   }
 }

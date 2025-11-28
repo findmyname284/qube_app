@@ -1,28 +1,21 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qube/utils/helper.dart';
 
 class TimeSlot {
-  /// Ожидаем интервалы занятости от сервера. Лучше в UTC-ISO (с 'Z'),
-  /// но в любом случае для отображения используем toLocal().
   final DateTime start;
   final DateTime end;
   const TimeSlot(this.start, this.end);
 }
 
 class RealtimeClockBooking extends StatefulWidget {
-  /// Занятость на день — уже посчитанная СЕРВЕРОМ (с учётом grace и т.п.).
   final List<TimeSlot> busy;
-
-  /// Шаг минут в колесе выбора.
   final Duration minuteStep;
-
-  /// Возвращает ВЫБРАННОЕ время старта в UTC.
   final void Function(DateTime startUtc)? onConfirm;
-
   final VoidCallback? onCancel;
   final double clockSize;
   final Duration maxStartAhead;
@@ -43,7 +36,7 @@ class RealtimeClockBooking extends StatefulWidget {
 
 class _RealtimeClockBookingState extends State<RealtimeClockBooking> {
   late Timer _ticker;
-  DateTime _now = DateTime.now(); // локальное "сейчас"
+  DateTime _now = DateTime.now();
   late int _selHour;
   late int _selMinute;
 
@@ -51,7 +44,6 @@ class _RealtimeClockBookingState extends State<RealtimeClockBooking> {
   void initState() {
     super.initState();
     _snapNowToStepAndInit();
-    // Обновляем «NOW» раз в 30 секунд и защищаем выбор от прошедшего времени.
     _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
       final prevMinute = _now.minute;
       _now = DateTime.now();
@@ -73,7 +65,7 @@ class _RealtimeClockBookingState extends State<RealtimeClockBooking> {
   int get _minMinuteFromNow {
     final step = widget.minuteStep.inMinutes;
     final m = _toMinutesOfDay(_now);
-    return ((m + step - 1) ~/ step) * step; // округление вверх к шагу
+    return ((m + step - 1) ~/ step) * step;
   }
 
   int get _maxMinuteFromNowAbs =>
@@ -82,39 +74,26 @@ class _RealtimeClockBookingState extends State<RealtimeClockBooking> {
   DateTime _localMidnight(DateTime base) =>
       DateTime(base.year, base.month, base.day);
 
-  // ---------- занятость (только отображаем то, что пришло с сервера) ----------
+  // ---------- занятость ----------
 
-  /// Переводим интервалы из widget.busy в минуты локального дня.
-  /// Переводим интервалы из widget.busy в минуты локального дня (0..1440),
-  /// корректно разбивая интервалы, которые переходят через полночь.
   List<(int, int)> get _busyIntervalsFullDay {
     final result = <(int, int)>[];
-
-    final dayStart = _localMidnight(_now); // сегодня 00:00
-    final dayEnd = dayStart.add(const Duration(days: 1)); // завтра 00:00
+    final dayStart = _localMidnight(_now);
+    final dayEnd = dayStart.add(const Duration(days: 1));
 
     for (final slot in widget.busy) {
-      // исходные времена в локали (НЕ обрезаем end заранее!)
       final sLocal = slot.start.toLocal();
       final eLocal = slot.end.toLocal();
 
-      // пересекается ли вообще с сегодняшними сутками?
-      // (любая часть слота, попадающая в [dayStart, dayEnd + 1д], нам интересна)
       if (eLocal.isBefore(dayStart) || sLocal.isAfter(dayEnd)) {
-        // полностью вне сегодняшних суток
         continue;
       }
 
-      // минуты от локальной полуночи БЕЗ обрезки
-      //   final startMinutesRaw = _toMinutesOfDay(sLocal);
       final endMinutesRaw = _toMinutesOfDay(eLocal);
-
       final crossesMidnight =
           eLocal.day != dayStart.day && eLocal.isAfter(sLocal);
 
       if (!crossesMidnight) {
-        // Обычный случай: слот полностью в одних сутках.
-        // Пересечение с [dayStart, dayEnd]
         final start = sLocal.isBefore(dayStart) ? dayStart : sLocal;
         final end = eLocal.isAfter(dayEnd) ? dayEnd : eLocal;
         if (!start.isBefore(end)) continue;
@@ -123,24 +102,18 @@ class _RealtimeClockBookingState extends State<RealtimeClockBooking> {
         final b = _toMinutesOfDay(end);
         if (a < b) result.add((a, b));
       } else {
-        // Слот тянется через полночь.
-        // Часть 1: от (максимум из start и сегодня 00:00) до 24:00
         final part1Start = sLocal.isBefore(dayStart) ? dayStart : sLocal;
         if (part1Start.isBefore(dayEnd)) {
-          final a = _toMinutesOfDay(part1Start); // 0..1439
+          final a = _toMinutesOfDay(part1Start);
           result.add((a, 1440));
         }
 
-        // Часть 2 (на следующий день): 00:00..endMinutesRaw
-        // но добавляем её только если «хвост» действительно есть (>00:00)
         if (endMinutesRaw > 0) {
-          // эта часть — уже «завтрашняя», но на круге она отображается как 0..end
           result.add((0, endMinutesRaw.clamp(0, 1440)));
         }
       }
     }
 
-    // слияние пересечений
     result.sort((a, b) => a.$1.compareTo(b.$1));
     final merged = <(int, int)>[];
     for (final it in result) {
@@ -178,11 +151,7 @@ class _RealtimeClockBookingState extends State<RealtimeClockBooking> {
     final minAbs = _minMinuteFromNow;
     final maxAbs = _maxMinuteFromNowAbs;
 
-    // переводим текущий выбор в "абсолютные" минуты от локальной полуночи текущих суток.
-    // если выбранный час меньше minH — считаем, что это "следующие сутки" (после полуночи),
-    // но нам достаточно просто привести его обратно в допустимый коридор через часы/минуты.
     int selAbs = _selHour * 60 + _selMinute;
-    // Если окно ушло за полночь, и выбор (час) меньше минимального часа, трактуем это как "следующий день"
     if (selAbs < minAbs && maxAbs > 1439) {
       selAbs += 1440;
     }
@@ -198,24 +167,18 @@ class _RealtimeClockBookingState extends State<RealtimeClockBooking> {
   }
 
   List<int> _hoursOptions() {
-    final minAbs = _minMinuteFromNow; // 0..1439
-    final maxAbs = _maxMinuteFromNowAbs; // может быть > 1439
-
+    final minAbs = _minMinuteFromNow;
+    final maxAbs = _maxMinuteFromNowAbs;
     final minH = minAbs ~/ 60;
 
-    // если конец в те же сутки
     if (maxAbs <= 1439) {
       final maxH = maxAbs ~/ 60;
-      // если граница попадает ровно на час — последний час включаем целиком,
-      // иначе тоже включаем, но потом ограничим минуты
       return [for (int h = minH; h <= maxH; h++) h];
     }
 
-    // если конец в следующие сутки
-    final maxNextAbs = maxAbs - 1440; // 0..?
+    final maxNextAbs = maxAbs - 1440;
     final maxHNext = maxNextAbs ~/ 60;
 
-    // часы из текущих суток [minH..23] + часы следующего дня [0..maxHNext]
     return [
       for (int h = minH; h <= 23; h++) h,
       for (int h = 0; h <= maxHNext; h++) h,
@@ -226,19 +189,16 @@ class _RealtimeClockBookingState extends State<RealtimeClockBooking> {
     final step = widget.minuteStep.inMinutes;
     final steps = [for (int m = 0; m < 60; m += step) m];
 
-    final minAbs = _minMinuteFromNow; // 0..1439
-    final maxAbs = _maxMinuteFromNowAbs; // может быть > 1439
-
+    final minAbs = _minMinuteFromNow;
+    final maxAbs = _maxMinuteFromNowAbs;
     final minH = minAbs ~/ 60;
     final minMin = minAbs % 60;
 
-    // Верхняя кромка в тех же сутках?
     if (maxAbs <= 1439) {
       final maxH = maxAbs ~/ 60;
       final maxMin = maxAbs % 60;
 
       if (hour == minH && hour == maxH) {
-        // выбран тот же час — минуты от minMin до maxMin включительно
         return steps.where((m) => m >= minMin && m <= maxMin).toList();
       } else if (hour == minH) {
         return steps.where((m) => m >= minMin).toList();
@@ -247,24 +207,21 @@ class _RealtimeClockBookingState extends State<RealtimeClockBooking> {
       } else if (hour > minH && hour < maxH) {
         return steps;
       } else {
-        return const <int>[]; // вне окна
+        return const <int>[];
       }
     }
 
-    // Иначе верхняя кромка — на следующий день
-    final maxNextAbs = maxAbs - 1440; // 0..?
+    final maxNextAbs = maxAbs - 1440;
     final maxHNext = maxNextAbs ~/ 60;
     final maxMinNext = maxNextAbs % 60;
 
-    // Часы текущих суток
     if (hour >= minH) {
       if (hour == minH) {
         return steps.where((m) => m >= minMin).toList();
       }
-      return steps; // между minH+1 и 23 — любые минуты
+      return steps;
     }
 
-    // Часы следующего дня: [0..maxHNext]
     if (hour <= maxHNext) {
       if (hour == maxHNext) {
         return steps.where((m) => m <= maxMinNext).toList();
@@ -272,13 +229,12 @@ class _RealtimeClockBookingState extends State<RealtimeClockBooking> {
       return steps;
     }
 
-    return const <int>[]; // вне окна
+    return const <int>[];
   }
 
-  // ---------- подтверждение (возвращаем UTC) ----------
+  // ---------- подтверждение ----------
 
   Future<void> _confirmAndSubmit() async {
-    // локальный выбор пользователя
     final startLocal = DateTime(
       _now.year,
       _now.month,
@@ -321,7 +277,7 @@ class _RealtimeClockBookingState extends State<RealtimeClockBooking> {
 
     if (ok == true) {
       final startUtc = startLocal.toUtc();
-      widget.onConfirm?.call(startUtc); // серверу — UTC
+      widget.onConfirm?.call(startUtc);
       if (context.mounted && mounted) Navigator.of(context).maybePop();
     }
   }
@@ -347,13 +303,12 @@ class _RealtimeClockBookingState extends State<RealtimeClockBooking> {
         SizedBox(
           width: widget.clockSize,
           height: widget.clockSize,
-          child: CustomPaint(
-            painter: _FullDayClockPainter(
-              now: _now,
-              busy: _busyIntervalsFullDay,
-              selectedHour: _selHour,
-              selectedMinute: _selMinute,
-            ),
+          child: _OptimizedClockPainter(
+            now: _now,
+            busy: _busyIntervalsFullDay,
+            selectedHour: _selHour,
+            selectedMinute: _selMinute,
+            clockSize: widget.clockSize,
           ),
         ),
         const SizedBox(height: 10),
@@ -452,31 +407,63 @@ class _RealtimeClockBookingState extends State<RealtimeClockBooking> {
   }
 }
 
-// ================= Painter =================
+// ================= ОПТИМИЗИРОВАННЫЙ PAINTER =================
 
-class _FullDayClockPainter extends CustomPainter {
-  final DateTime now; // локальное "сейчас"
-  final List<(int, int)> busy; // интервалы в минутах от локальной полуночи
+class _OptimizedClockPainter extends StatelessWidget {
+  final DateTime now;
+  final List<(int, int)> busy;
   final int selectedHour;
   final int selectedMinute;
+  final double clockSize;
 
-  _FullDayClockPainter({
+  const _OptimizedClockPainter({
     required this.now,
     required this.busy,
     required this.selectedHour,
     required this.selectedMinute,
+    required this.clockSize,
   });
 
-  int get nowM => now.hour * 60 + now.minute;
-  int get selectedM {
-    var sel = selectedHour * 60 + selectedMinute;
-    // если окно захватывает завтра и выбран час < minHour — добавляем сутки
-    if (sel < nowM) sel += 1440;
-    return sel;
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: CustomPaint(
+        painter: _ClockStaticPainter(),
+        foregroundPainter: _ClockDynamicPainter(
+          now: now,
+          busy: busy,
+          selectedHour: selectedHour,
+          selectedMinute: selectedMinute,
+        ),
+        size: Size.square(clockSize),
+      ),
+    );
   }
+}
+
+// 1) Статический painter - никогда не перерисовывается
+class _ClockStaticPainter extends CustomPainter {
+  static ui.Picture? _cachedStaticPicture;
+  static double _lastClockSize = 0;
 
   @override
   void paint(Canvas canvas, Size size) {
+    final clockSize = size.width;
+
+    // Кэшируем Picture только если размер изменился
+    if (_cachedStaticPicture == null || _lastClockSize != clockSize) {
+      _lastClockSize = clockSize;
+      _cachedStaticPicture = _createStaticPicture(clockSize);
+    }
+
+    canvas.drawPicture(_cachedStaticPicture!);
+  }
+
+  ui.Picture _createStaticPicture(double clockSize) {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final size = Size.square(clockSize);
+
     final center = Offset(size.width / 2, size.height / 2);
     final radius = math.min(size.width, size.height) / 2 - 12;
 
@@ -492,6 +479,9 @@ class _FullDayClockPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2
       ..color = Colors.white70;
+
+    // Кэш для TextPainter'ов
+    final textPainters = <int, TextPainter>{};
 
     for (int hour = 0; hour < 24; hour++) {
       final angle = _angleFromMinutes(hour * 60);
@@ -513,6 +503,8 @@ class _FullDayClockPainter extends CustomPainter {
           ),
           textDirection: TextDirection.ltr,
         )..layout();
+        textPainters[hour] = tp;
+
         final textOffset =
             center +
             Offset(math.cos(angle), math.sin(angle)) * (radius + 8) -
@@ -521,18 +513,49 @@ class _FullDayClockPainter extends CustomPainter {
       }
     }
 
-    // --------- Прошедшее время: от 00:00 текущего дня до now (может >24ч) ----------
+    return recorder.endRecording();
+  }
+
+  double _angleFromMinutes(int minutes) =>
+      -math.pi / 2 + 2 * math.pi * (minutes / 1440.0);
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// 2) Динамический painter - только для изменяющихся элементов
+class _ClockDynamicPainter extends CustomPainter {
+  final DateTime now;
+  final List<(int, int)> busy;
+  final int selectedHour;
+  final int selectedMinute;
+
+  _ClockDynamicPainter({
+    required this.now,
+    required this.busy,
+    required this.selectedHour,
+    required this.selectedMinute,
+  });
+
+  int get nowM => now.hour * 60 + now.minute;
+  int get selectedM {
+    var sel = selectedHour * 60 + selectedMinute;
+    if (sel < nowM) sel += 1440;
+    return sel;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = math.min(size.width, size.height) / 2 - 12;
+
+    // Дуга прошедшего времени
     final pastPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 10
       ..color = Colors.white12;
 
     int nowAbs = nowM;
-    // если текущее время + maxStartAhead может переходить на след. сутки, показываем «прошедшее» до now даже если он >1440
-    // но само "сейчас" у нас всегда <=1440 (текущий день). Нам нужно, чтобы при выборе окна >24ч
-    // дуга корректно шла 0..1440, а потом ещё кусочек 0..(now-1440) если nowAbs>1440
-    // но nowAbs сам ≤1440, так что просто если хотим рисовать будущее (например, для визуализации окна),
-    // логичнее отложить доп. отрисовку не здесь. Здесь остаёмся в 0..1440.
     final startAngle = _angleFromMinutes(0);
     final nowAngle = _angleFromMinutes(nowAbs);
     double sweepAngle = nowAngle - startAngle;
@@ -545,7 +568,7 @@ class _FullDayClockPainter extends CustomPainter {
       pastPaint,
     );
 
-    // Занятые интервалы — красные дуги
+    // Занятые интервалы
     final busyPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
@@ -557,7 +580,7 @@ class _FullDayClockPainter extends CustomPainter {
       final sa = _angleFromMinutes(start);
       final ea = _angleFromMinutes(end);
       double sweep = ea - sa;
-      if (sweep < 0) sweep += 2 * math.pi; // ← это уже делает переход за 00:00
+      if (sweep < 0) sweep += 2 * math.pi;
       canvas.drawArc(
         Rect.fromCircle(center: center, radius: radius),
         sa,
@@ -625,7 +648,7 @@ class _FullDayClockPainter extends CustomPainter {
       -math.pi / 2 + 2 * math.pi * (minutes / 1440.0);
 
   @override
-  bool shouldRepaint(covariant _FullDayClockPainter oldDelegate) {
+  bool shouldRepaint(covariant _ClockDynamicPainter oldDelegate) {
     return oldDelegate.now.minute != now.minute ||
         !_listEquals(oldDelegate.busy, busy) ||
         oldDelegate.selectedHour != selectedHour ||
@@ -641,7 +664,7 @@ class _FullDayClockPainter extends CustomPainter {
   }
 }
 
-// ================= Wheel =================
+// ================= Wheel (без изменений) =================
 
 class _Wheel<T> extends StatefulWidget {
   final String label;
@@ -740,8 +763,7 @@ class _WheelState<T> extends State<_Wheel<T>> {
                   child: Text(
                     widget.itemToString(item),
                     style: const TextStyle(
-                      color:
-                          Colors.white, // если ругнётся, замени на Colors.white
+                      color: Colors.white,
                       fontSize: 18,
                       fontWeight: FontWeight.w600,
                     ),

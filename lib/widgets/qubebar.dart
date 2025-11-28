@@ -5,6 +5,8 @@ class QubeAppBar extends StatelessWidget implements PreferredSizeWidget {
   final IconData icon;
   final bool? showBackButton;
   final List<Widget>? actions;
+  final Color? backgroundColor;
+  final IconButton? leading;
 
   const QubeAppBar({
     super.key,
@@ -12,6 +14,8 @@ class QubeAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.icon = Icons.sports_esports,
     this.showBackButton = true,
     this.actions,
+    this.backgroundColor,
+    this.leading,
   });
 
   @override
@@ -20,7 +24,7 @@ class QubeAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     return AppBar(
-      backgroundColor: Colors.transparent,
+      backgroundColor: backgroundColor ?? Colors.transparent,
       elevation: 0,
       scrolledUnderElevation: 0,
       centerTitle: true,

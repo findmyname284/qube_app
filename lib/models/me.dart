@@ -1,34 +1,37 @@
 class Profile {
   final String name;
-  final String surname;
-  final String username;
+  final String lastName;
+  final String login;
   final String email;
   final String? phone;
-  final String? avatarUrl;
-  final int? balance;
-  final int? discount;
+  final String? avatar;
+  final String amount;
+  final String? bonusAmount;
+  final bool isConfirmed;
 
   Profile({
     required this.name,
-    required this.surname,
-    required this.username,
+    required this.lastName,
+    required this.login,
     required this.email,
     this.phone,
-    this.avatarUrl,
-    this.balance,
-    this.discount,
+    this.avatar,
+    required this.amount,
+    this.bonusAmount,
+    this.isConfirmed = false,
   });
 
   factory Profile.fromJson(Map<String, dynamic> j) {
     return Profile(
       name: j['name'] ?? '',
-      surname: j['surname'] ?? '',
-      username: j['username'] ?? '',
+      lastName: j['last_name'] ?? '',
+      login: j['login'] ?? '',
       email: j['email'] ?? '',
       phone: j['phone'],
-      avatarUrl: j['avatarUrl'],
-      balance: j['balance'],
-      discount: j['discount'],
+      avatar: j['avatar'],
+      amount: j['amount'],
+      bonusAmount: j['bonus_amount'],
+      isConfirmed: j['is_confirmed'] ?? false,
     );
   }
 }

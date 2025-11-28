@@ -55,8 +55,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         setStateSafe(() => _isLoading = false);
       }
 
-      if (token.token.isNotEmpty) {
-        AuthStorage.saveToken(token.token);
+      if (token.accessToken.isNotEmpty) {
+        AuthStorage.saveTokens(token.accessToken, token.refreshToken);
         if (mounted) {
           _showSuccessAnimation();
         }

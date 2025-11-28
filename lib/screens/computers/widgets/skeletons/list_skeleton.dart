@@ -8,7 +8,7 @@ class ListSkeleton extends StatelessWidget {
     return ListView.builder(
       padding: const EdgeInsets.only(top: 8, bottom: 24),
       itemCount: 8,
-      itemBuilder: (_, __) => const ComputerCardSkeleton(),
+      itemBuilder: (_, _) => const ComputerCardSkeleton(),
     );
   }
 }

@@ -3,21 +3,23 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:qube/models/bonuses.dart';
 import 'package:qube/models/booking.dart';
 import 'package:qube/models/computer.dart';
 import 'package:qube/models/me.dart';
-import 'package:qube/models/promotion.dart'; // для новостей/акций (Promotion)
-import 'package:qube/models/tariff.dart';
+import 'package:qube/models/promotion.dart';
 import 'package:qube/models/user_token.dart';
+import 'package:qube/screens/profile/models/tariff.dart';
+import 'package:qube/screens/profile/models/ticket.dart';
+import 'package:qube/screens/profile/models/zone.dart';
 import 'package:qube/services/auth_storage.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-/// Бросаем это, чтобы UI различал сетевые/HTTP ошибки и мог показать нормальные сообщения
 class ApiException implements Exception {
   final int? statusCode;
   final String message;
   final Object? inner;
-  final Map<String, dynamic>?
-  data; // для payload с сервера (error, suggestions, window и т. п.)
+  final Map<String, dynamic>? data;
   ApiException(this.message, {this.statusCode, this.inner, this.data});
 
   @override
@@ -32,7 +34,10 @@ class ApiService {
   final http.Client _client;
 
   // --- Конфиг ---
-  static const String baseUrl = 'https://qubegg.f1ndnm.site';
+  //   static const String baseUrl = 'https://qubegg.f1ndnm.site';
+  //   static const String baseUrl = 'http://10.113.89.31:8080';
+  static const String baseUrl = 'http://192.168.10.73:8080';
+  //   static const String baseUrl = 'http://127.0.0.1:8080';
   static const Duration _timeout = Duration(seconds: 15);
 
   // --- Хелперы ---
@@ -44,6 +49,89 @@ class ApiService {
   static dynamic _decodeBody(http.Response resp) {
     final text = utf8.decode(resp.bodyBytes);
     return text.isEmpty ? null : jsonDecode(text);
+  }
+
+  /// Основной метод для авторизованных запросов с автоматическим обновлением токенов
+  Future<http.Response> _authorizedRequest(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+    Map<String, String>? queryParameters,
+  }) async {
+    final token = await AuthStorage.getAccessToken();
+    var uri = Uri.parse('$baseUrl$path');
+    if (queryParameters != null) {
+      uri = uri.replace(queryParameters: queryParameters);
+    }
+
+    // Первый запрос
+    var response = await _makeRequest(method, uri, token, body);
+
+    // Если получили 401, пробуем обновить токен и повторить запрос
+    if (response.statusCode == 401) {
+      final refreshed = await _refreshTokens();
+      if (refreshed) {
+        final newToken = await AuthStorage.getAccessToken();
+        response = await _makeRequest(method, uri, newToken, body);
+      } else {
+        // Не удалось обновить - выбрасываем исключение
+        throw ApiException('Сессия истекла. Войдите заново.', statusCode: 401);
+      }
+    }
+
+    return response;
+  }
+
+  /// Вспомогательный метод для создания запроса
+  Future<http.Response> _makeRequest(
+    String method,
+    Uri uri,
+    String? token,
+    Map<String, dynamic>? body,
+  ) async {
+    try {
+      final request = http.Request(method, uri)
+        ..headers.addAll(_baseHeaders(token: token));
+
+      if (body != null) {
+        request.body = jsonEncode(body);
+      }
+
+      final streamedResponse = await _client.send(request).timeout(_timeout);
+      final response = await http.Response.fromStream(streamedResponse);
+      return response;
+    } on SocketException catch (e) {
+      throw ApiException('Нет соединения с сервером', inner: e);
+    } on HttpException catch (e) {
+      throw ApiException('Ошибка соединения', inner: e);
+    }
+  }
+
+  /// Метод для обновления токенов
+  Future<bool> _refreshTokens() async {
+    try {
+      final refreshToken = await AuthStorage.getRefreshToken();
+      if (refreshToken == null) return false;
+
+      final uri = Uri.parse('$baseUrl/refresh');
+      final response = await _client
+          .post(uri, headers: _baseHeaders(token: refreshToken))
+          .timeout(_timeout);
+
+      if (response.statusCode == 200) {
+        final json = _decodeBody(response);
+        final tokens = UserToken.fromJson(json as Map<String, dynamic>);
+        await AuthStorage.saveTokens(tokens.accessToken, tokens.refreshToken);
+        return true;
+      } else {
+        // Refresh token истек или невалиден
+        await AuthStorage.clearTokens();
+        return false;
+      }
+    } catch (e) {
+      await AuthStorage.clearTokens();
+      return false;
+    }
   }
 
   /// Универсальная обвязка для ответов
@@ -64,16 +152,11 @@ class ApiService {
         if (json['message'] is String) {
           message = json['message'] as String;
         } else if (json['error'] is String) {
-          // иногда только error
           message = json['error'] as String;
         }
       }
     } catch (_) {
       /* ignore */
-    }
-
-    if (code == 401 || code == 403) {
-      AuthStorage.clearToken(); // протух токен
     }
 
     throw ApiException(message, statusCode: code, data: data);
@@ -82,64 +165,35 @@ class ApiService {
   // =================== COMPUTERS ===================
 
   Future<List<Computer>> fetchComputers() async {
-    final token = await AuthStorage.getToken();
-    try {
-      final uri = Uri.parse('$baseUrl/computers');
-      final resp = await _client
-          .get(uri, headers: _baseHeaders(token: token))
-          .timeout(_timeout);
-
-      return _handle<List<Computer>>(resp, (json) {
-        final list = (json as List<dynamic>? ?? const []);
-        return list
-            .map((e) => Computer.fromJson(e as Map<String, dynamic>))
-            .toList();
-      });
-    } on SocketException catch (e) {
-      throw ApiException('Нет соединения с сервером', inner: e);
-    } on HttpException catch (e) {
-      throw ApiException('Ошибка соединения', inner: e);
-    } on FormatException catch (e) {
-      throw ApiException('Некорректный ответ сервера', inner: e);
-    }
+    final resp = await _authorizedRequest('GET', '/computers');
+    return _handle<List<Computer>>(resp, (json) {
+      if (json is! List<dynamic>) {
+        return const [];
+      }
+      final list = json;
+      return list
+          .map((e) => Computer.fromJson(e as Map<String, dynamic>))
+          .toList();
+    });
   }
 
   Future<Computer> fetchComputer(int id) async {
-    final token = await AuthStorage.getToken();
-    try {
-      final uri = Uri.parse('$baseUrl/computers/$id');
-      final resp = await _client
-          .get(uri, headers: _baseHeaders(token: token))
-          .timeout(_timeout);
-
-      return _handle<Computer>(
-        resp,
-        (json) => Computer.fromJson(json as Map<String, dynamic>),
-      );
-    } on SocketException catch (e) {
-      throw ApiException('Нет соединения с сервером', inner: e);
-    } on FormatException catch (e) {
-      throw ApiException('Некорректный ответ сервера', inner: e);
-    }
+    final resp = await _authorizedRequest('GET', '/computers/$id');
+    return _handle<Computer>(
+      resp,
+      (json) => Computer.fromJson(json as Map<String, dynamic>),
+    );
   }
 
-  /// Интервалы занятости для часов (уже с учётом grace на бэке)
   Future<Map<String, dynamic>> fetchBookedIntervals(int computerId) async {
-    final token = await AuthStorage.getToken();
-    try {
-      final uri = Uri.parse('$baseUrl/computers/booked/$computerId');
-      final resp = await _client
-          .get(uri, headers: _baseHeaders(token: token))
-          .timeout(_timeout);
-      return _handle<Map<String, dynamic>>(
-        resp,
-        (json) => (json as Map).cast<String, dynamic>(),
-      );
-    } on SocketException catch (e) {
-      throw ApiException('Нет соединения с сервером', inner: e);
-    } on FormatException catch (e) {
-      throw ApiException('Некорректный ответ сервера', inner: e);
-    }
+    final resp = await _authorizedRequest(
+      'GET',
+      '/computers/booked/$computerId',
+    );
+    return _handle<Map<String, dynamic>>(
+      resp,
+      (json) => (json as Map).cast<String, dynamic>(),
+    );
   }
 
   /// Доступные окна и (опционально) подсказки
@@ -148,26 +202,22 @@ class ApiService {
     int? durationHours,
     DateTime? desiredStartLocal,
   }) async {
-    final token = await AuthStorage.getToken();
-    try {
-      final q = <String, String>{};
-      if (durationHours != null) q['duration_hours'] = '$durationHours';
-      if (desiredStartLocal != null) {
-        q['desired_start'] = desiredStartLocal.toUtc().toIso8601String();
-      }
-      final uri = Uri.parse(
-        '$baseUrl/computers/$computerId/availability',
-      ).replace(queryParameters: q.isEmpty ? null : q);
-      final resp = await _client
-          .get(uri, headers: _baseHeaders(token: token))
-          .timeout(_timeout);
-      return _handle<Map<String, dynamic>>(
-        resp,
-        (json) => (json as Map).cast<String, dynamic>(),
-      );
-    } on SocketException catch (e) {
-      throw ApiException('Нет соединения с сервером', inner: e);
+    final q = <String, String>{};
+    if (durationHours != null) q['duration_hours'] = '$durationHours';
+    if (desiredStartLocal != null) {
+      q['desired_start'] = desiredStartLocal.toUtc().toIso8601String();
     }
+
+    final resp = await _authorizedRequest(
+      'GET',
+      '/computers/$computerId/availability',
+      queryParameters: q.isEmpty ? null : q,
+    );
+
+    return _handle<Map<String, dynamic>>(
+      resp,
+      (json) => (json as Map).cast<String, dynamic>(),
+    );
   }
 
   // =================== AUTH & PROFILE ===================
@@ -182,7 +232,7 @@ class ApiService {
           .post(
             uri,
             headers: _baseHeaders(),
-            body: jsonEncode({'username': username, 'password': password}),
+            body: jsonEncode({'login': username, 'password': password}),
           )
           .timeout(_timeout);
 
@@ -215,139 +265,152 @@ class ApiService {
     }
   }
 
-  Future<Profile?> getProfile() async {
-    final token = await AuthStorage.getToken();
-    if (token == null) return null;
+  Future<UserToken> refreshToken() async {
+    final token = await AuthStorage.getRefreshToken();
+    if (token == null) throw ApiException('Пользователь не авторизован');
+
     try {
-      final uri = Uri.parse('$baseUrl/me');
+      final uri = Uri.parse('$baseUrl/refresh');
       final resp = await _client
-          .get(uri, headers: _baseHeaders(token: token))
+          .post(uri, headers: _baseHeaders(token: token))
           .timeout(_timeout);
 
+      if (resp.statusCode == 401) {
+        throw ApiException('Пользователь не авторизован');
+      }
+
+      return _handle<UserToken>(
+        resp,
+        (json) => UserToken.fromJson(json as Map<String, dynamic>),
+      );
+    } on SocketException catch (e) {
+      throw ApiException('Нет соединения с сервером', inner: e);
+    }
+  }
+
+  Future<Profile?> getProfile() async {
+    try {
+      final resp = await _authorizedRequest('GET', '/me');
       return _handle<Profile?>(
         resp,
         (json) => Profile.fromJson(json as Map<String, dynamic>),
       );
     } on ApiException catch (e) {
-      if (e.statusCode == 401 || e.statusCode == 403) return null;
+      if (e.statusCode == 401) {
+        await AuthStorage.clearTokens();
+        return null;
+      }
       rethrow;
-    } on SocketException catch (e) {
-      throw ApiException('Нет соединения с сервером', inner: e);
+    }
+  }
+
+  Future<double?> getDiscount() async {
+    try {
+      final resp = await _authorizedRequest('GET', '/discount');
+      final json = _handle<Map<String, dynamic>>(resp, (json) => json);
+      return json['discount'] as double?;
+    } on ApiException catch (e) {
+      if (e.statusCode == 401) {
+        await AuthStorage.clearTokens();
+        return null;
+      }
+      rethrow;
     }
   }
 
   // =================== NEWS / PROMOTIONS ===================
 
-  /// Сервер отдаёт список новостей; маппим в твою модель Promotion
   Future<List<Promotion>> fetchPromotions() async {
-    final token = await AuthStorage.getToken(); // можно и без токена
-    try {
-      final uri = Uri.parse('$baseUrl/news');
-      final resp = await _client
-          .get(uri, headers: _baseHeaders(token: token))
-          .timeout(_timeout);
-
-      return _handle<List<Promotion>>(resp, (json) {
-        final list = (json as List<dynamic>? ?? const []);
-        return list.map((e) {
-          final m = (e as Map).cast<String, dynamic>();
-          // сервер дублирует поля под клиент:
-          // title, description, imageUrl, endDate (ISO)
-          final category = (m['category'] ?? 'Акции') as String;
-          return Promotion(
-            id: m['id'] as String?,
-            title: (m['title'] ?? '') as String,
-            description: (m['description'] ?? '') as String,
-            imageUrl: m['imageUrl'] as String?,
-            category: category,
-            // если в модели Promotion endDate: DateTime?
-            endDate:
-                (m['endDate'] is String && (m['endDate'] as String).isNotEmpty)
-                ? DateTime.parse(m['endDate'] as String).toLocal()
-                : null,
-            icon: category != 'Акции'
-                ? Icons.campaign_rounded
-                : Icons.local_offer_rounded,
-            // gradient/иконку ты задаёшь на клиенте — опционально
-          );
-        }).toList();
-      });
-    } on SocketException catch (e) {
-      throw ApiException('Нет соединения с сервером', inner: e);
-    } on FormatException catch (e) {
-      throw ApiException('Некорректный ответ сервера', inner: e);
-    }
+    final resp = await _authorizedRequest('GET', '/news');
+    return _handle<List<Promotion>>(resp, (json) {
+      final list = (json as List<dynamic>? ?? const []);
+      return list.map((e) {
+        final m = (e as Map).cast<String, dynamic>();
+        final category = (m['category'] ?? 'Акции') as String;
+        return Promotion(
+          id: m['id'] as String?,
+          title: (m['title'] ?? '') as String,
+          description: (m['description'] ?? '') as String,
+          imageUrl: m['image_url'] as String?,
+          category: category,
+          endDate:
+              (m['end_date'] is String && (m['end_date'] as String).isNotEmpty)
+              ? DateTime.parse(m['end_date'] as String).toLocal()
+              : null,
+          icon: category != 'Акции'
+              ? Icons.campaign_rounded
+              : Icons.local_offer_rounded,
+        );
+      }).toList();
+    });
   }
 
   // =================== TARIFFS ===================
 
-  /// Возвращаем в том виде, как ждёт твой UI: {'title': String, 'price': int, 'minutes': int, 'description': String}
-  Future<List<Tariff>> fetchTariffs({String? zone}) async {
-    final token = await AuthStorage.getToken();
-    try {
-      final uri = Uri.parse(
-        '$baseUrl/tariffs',
-      ).replace(queryParameters: zone != null ? {'zone': zone} : null);
-      final resp = await _client
-          .get(uri, headers: _baseHeaders(token: token))
-          .timeout(_timeout);
+  Future<List<Zone>> fetchZones() async {
+    final resp = await _authorizedRequest('GET', '/zones');
+    return _handle<List<Zone>>(resp, (json) {
+      if (json is! List<dynamic>) return const [];
+      return json.map((e) => Zone.fromJson(e as Map<String, dynamic>)).toList();
+    });
+  }
 
-      return _handle<List<Tariff>>(resp, (json) {
-        final list = (json as List<dynamic>? ?? const []);
-        return list
-            .map((e) => Tariff.fromJson((e as Map).cast<String, dynamic>()))
-            .toList();
-      });
-    } on SocketException catch (e) {
-      throw ApiException('Нет соединения с сервером', inner: e);
-    }
+  Future<List<Tariff>> fetchTariffs({String? zone}) async {
+    final q = zone != null ? {'zone': zone} : null;
+    final resp = await _authorizedRequest(
+      'GET',
+      '/tariffs',
+      queryParameters: q,
+    );
+    return _handle<List<Tariff>>(resp, (json) {
+      if (json is! List<dynamic>) return const [];
+      return json
+          .map((e) => Tariff.fromJson(e as Map<String, dynamic>))
+          .toList();
+    });
+  }
+
+  Future<List<Ticket>> fetchTickets({String? zone}) async {
+    final q = zone != null ? {'zone': zone} : null;
+    final resp = await _authorizedRequest(
+      'GET',
+      '/tickets',
+      queryParameters: q,
+    );
+    return _handle<List<Ticket>>(resp, (json) {
+      if (json is! List<dynamic>) return const [];
+      return json
+          .map((e) => Ticket.fromJson(e as Map<String, dynamic>))
+          .toList();
+    });
   }
 
   // =================== BOOKINGS ===================
 
   Future<List<Booking>> fetchBookings() async {
-    final token = await AuthStorage.getToken();
-    if (token == null) throw ApiException('Пользователь не авторизован');
-
-    try {
-      final uri = Uri.parse('$baseUrl/booking');
-      final resp = await _client
-          .get(uri, headers: _baseHeaders(token: token))
-          .timeout(_timeout);
-
-      return _handle<List<Booking>>(resp, (json) {
-        final list = (json as List<dynamic>? ?? const []);
-        return list
-            .map((e) => Booking.fromJson(e as Map<String, dynamic>))
-            .toList();
-      });
-    } on SocketException catch (e) {
-      throw ApiException('Нет соединения с сервером', inner: e);
-    }
+    final resp = await _authorizedRequest('GET', '/booking');
+    return _handle<List<Booking>>(resp, (json) {
+      final list = (json as List<dynamic>? ?? const []);
+      return list
+          .map((e) => Booking.fromJson(e as Map<String, dynamic>))
+          .toList();
+    });
   }
 
   Future<List<Tariff>> fetchTariffsForComputer(int computerId) async {
-    final token = await AuthStorage.getToken();
-    try {
-      final uri = Uri.parse('$baseUrl/computers/$computerId/tariffs');
-      final resp = await _client
-          .get(uri, headers: _baseHeaders(token: token))
-          .timeout(_timeout);
-
-      return _handle<List<Tariff>>(resp, (json) {
-        final list = (json as List<dynamic>? ?? const []);
-        return list
-            .map((e) => Tariff.fromJson(e as Map<String, dynamic>))
-            .toList();
-      });
-    } on SocketException catch (e) {
-      throw ApiException('Нет соединения с сервером', inner: e);
-    }
+    final resp = await _authorizedRequest(
+      'GET',
+      '/computers/$computerId/tariffs',
+    );
+    return _handle<List<Tariff>>(resp, (json) {
+      final list = (json as List<dynamic>? ?? const []);
+      return list
+          .map((e) => Tariff.fromJson(e as Map<String, dynamic>))
+          .toList();
+    });
   }
 
-  /// Старый метод (обратная совместимость).
-  /// Для создания: передай startLocal + duration (+ graceMin).
-  /// Для отмены: commandType='release' и (опционально) bookingId.
+  /// Старый метод (обратная совместимость)
   Future<void> booking(
     int computerId,
     String commandType,
@@ -355,11 +418,8 @@ class ApiService {
     Duration? duration, {
     int? graceMin,
     String? bookingId,
-    String? tariffId,
+    int? tariffId,
   }) async {
-    final token = await AuthStorage.getToken();
-    if (token == null) throw ApiException('Пользователь не авторизован');
-
     final body = {"command_type": commandType};
 
     if (commandType == 'release') {
@@ -373,35 +433,19 @@ class ApiService {
       body["start"] = startLocal.toUtc().toIso8601String();
       body["end"] = startLocal.add(duration).toUtc().toIso8601String();
       if (graceMin != null) body["grace_min"] = graceMin.toString();
-      if (tariffId != null) body["tariff_id"] = tariffId;
+      if (tariffId != null) body["tariff_id"] = tariffId.toString();
     }
 
-    try {
-      final uri = Uri.parse('$baseUrl/booking/$computerId');
-      final resp = await _client
-          .post(
-            uri,
-            headers: _baseHeaders(token: token),
-            body: jsonEncode(body),
-          )
-          .timeout(_timeout);
+    final resp = await _authorizedRequest(
+      'POST',
+      '/booking/$computerId',
+      body: body,
+    );
 
-      _handle<void>(resp, (_) {});
-    } on ApiException catch (e) {
-      // Сделаем сообщение более дружелюбным при 409
-      if (e.statusCode == 409) {
-        final msg =
-            e.data?['message'] as String? ??
-            'Компьютер уже забронирован на это время';
-        throw ApiException(msg, statusCode: 409, data: e.data);
-      }
-      rethrow;
-    } on SocketException catch (e) {
-      throw ApiException('Нет соединения с сервером', inner: e);
-    }
+    _handle<void>(resp, (_) {});
   }
 
-  /// Новый удобный метод: создать бронь (с поддержкой graceMin)
+  /// Новый удобный метод: создать бронь
   Future<Map<String, dynamic>> createBooking({
     required int computerId,
     required DateTime startLocal,
@@ -409,9 +453,6 @@ class ApiService {
     int? graceMin,
     String commandType = 'maintenance',
   }) async {
-    final token = await AuthStorage.getToken();
-    if (token == null) throw ApiException('Пользователь не авторизован');
-
     final body = <String, dynamic>{
       "command_type": commandType,
       "start": startLocal.toUtc().toIso8601String(),
@@ -419,33 +460,16 @@ class ApiService {
       if (graceMin != null) "grace_min": graceMin,
     };
 
-    try {
-      final uri = Uri.parse('$baseUrl/booking/$computerId');
-      final resp = await _client
-          .post(
-            uri,
-            headers: _baseHeaders(token: token),
-            body: jsonEncode(body),
-          )
-          .timeout(_timeout);
+    final resp = await _authorizedRequest(
+      'POST',
+      '/booking/$computerId',
+      body: body,
+    );
 
-      return _handle<Map<String, dynamic>>(
-        resp,
-        (json) => (json as Map).cast<String, dynamic>(),
-      );
-    } on ApiException catch (e) {
-      if (e.statusCode == 409) {
-        // на UI удобно иметь suggestions/free/window
-        throw ApiException(
-          e.data?['message'] as String? ?? 'Пересечение с существующей бронью',
-          statusCode: 409,
-          data: e.data,
-        );
-      }
-      rethrow;
-    } on SocketException catch (e) {
-      throw ApiException('Нет соединения с сервером', inner: e);
-    }
+    return _handle<Map<String, dynamic>>(
+      resp,
+      (json) => (json as Map).cast<String, dynamic>(),
+    );
   }
 
   /// Отмена одной конкретной брони по bookingId
@@ -453,74 +477,51 @@ class ApiService {
     required int computerId,
     required String bookingId,
   }) async {
-    final token = await AuthStorage.getToken();
-    if (token == null) throw ApiException('Пользователь не авторизован');
+    final resp = await _authorizedRequest(
+      'DELETE',
+      '/booking/$computerId/$bookingId',
+    );
 
-    try {
-      // Можно через DELETE …/booking/<cid>/<booking_id>
-      final uri = Uri.parse('$baseUrl/booking/$computerId/$bookingId');
-      final resp = await _client
-          .delete(uri, headers: _baseHeaders(token: token))
-          .timeout(_timeout);
-
-      _handle<void>(resp, (_) {});
-    } on ApiException catch (e) {
-      if (e.statusCode == 404) {
-        throw ApiException('Бронь не найдена', statusCode: 404);
-      }
-      rethrow;
-    } on SocketException catch (e) {
-      throw ApiException('Нет соединения с сервером', inner: e);
-    }
+    _handle<void>(resp, (_) {});
   }
 
-  /// Отмена «одной из» броней пользователя на ПК (активная → ближайшая → последняя прошлая)
+  /// Отмена «одной из» броней пользователя на ПК
   Future<void> releaseOneBookingSmart(int computerId) async {
-    final token = await AuthStorage.getToken();
-    if (token == null) throw ApiException('Пользователь не авторизован');
+    final resp = await _authorizedRequest(
+      'POST',
+      '/booking/$computerId',
+      body: {"command_type": "release"},
+    );
 
-    try {
-      final uri = Uri.parse('$baseUrl/booking/$computerId');
-      final resp = await _client
-          .post(
-            uri,
-            headers: _baseHeaders(token: token),
-            body: jsonEncode({"command_type": "release"}),
-          )
-          .timeout(_timeout);
-
-      _handle<void>(resp, (_) {});
-    } on ApiException catch (e) {
-      if (e.statusCode == 404) {
-        throw ApiException('Нет брони для отмены', statusCode: 404);
-      }
-      rethrow;
-    } on SocketException catch (e) {
-      throw ApiException('Нет соединения с сервером', inner: e);
-    }
+    _handle<void>(resp, (_) {});
   }
 
-  Future<Profile?> topUpBalance(int amount, {String source = 'app'}) async {
-    final token = await AuthStorage.getToken();
-    if (token == null) throw ApiException('Пользователь не авторизован');
-    try {
-      final uri = Uri.parse('$baseUrl/wallet/topup');
-      final resp = await _client
-          .post(
-            uri,
-            headers: _baseHeaders(token: token),
-            body: jsonEncode({"amount": amount, "source": source}),
-          )
-          .timeout(_timeout);
+  Future<Bonuses> calculateBonus(int amount, {String source = 'app'}) async {
+    final resp = await _authorizedRequest('GET', '/calculate/bonus/$amount');
 
-      return _handle<Profile>(
-        resp,
-        (json) => Profile.fromJson(json as Map<String, dynamic>),
-      );
-    } on ApiException {
-      rethrow;
-    } on SocketException catch (e) {
-      throw ApiException('Нет соединения с сервером', inner: e);
+    return _handle<Bonuses>(resp, (json) => Bonuses.fromJson(json));
+  }
+
+  Future<String> topUpBalance(int amount, {String source = 'app'}) async {
+    final resp = await _authorizedRequest(
+      'POST',
+      '/account/refill',
+      body: {"amount": amount, "source": source},
+    );
+
+    // Обрабатываем ответ и извлекаем ссылку
+    final jsonData = json.decode(resp.body);
+    final String paymentLink = jsonData['invoice']['link'];
+
+    _launchURL(Uri.parse(paymentLink));
+    return paymentLink;
+  }
+
+  Future<void> _launchURL(Uri url) async {
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url);
+    } else {
+      throw 'Не удалось открыть';
     }
   }
 

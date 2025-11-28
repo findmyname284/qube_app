@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:qube/main.dart';
 import 'package:qube/models/computer.dart';
 import 'package:qube/models/me.dart';
-import 'package:qube/models/tariff.dart';
 import 'package:qube/services/api_service.dart';
 import 'package:qube/utils/helper.dart';
 
@@ -60,28 +59,19 @@ class _SplashScreenState extends State<SplashScreen>
 
     try {
       // параллельная загрузка
-      final (
-        List<Computer> computers,
-        Profile? profile,
-        List<Tariff> tariffs,
-      ) = await (
+      final (List<Computer> computers, Profile? profile) = await (
         api.fetchComputers(),
         api.getProfile(),
-        api.fetchTariffs(),
       ).wait;
 
       if (!mounted) return;
       await Future.delayed(const Duration(milliseconds: 200));
 
       if (!mounted) return;
-      Navigator.push(
+      Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => MainPage(
-            computers: computers,
-            profile: profile,
-            tariffs: tariffs,
-          ),
+          builder: (_) => MainPage(computers: computers, profile: profile),
         ),
       );
     } catch (e) {
@@ -244,7 +234,6 @@ class _SplashScreenState extends State<SplashScreen>
                 ),
               ),
 
-              // маленький подвал (опционально: версия/копирайт)
               Positioned(
                 left: 0,
                 right: 0,
@@ -252,7 +241,7 @@ class _SplashScreenState extends State<SplashScreen>
                 child: Opacity(
                   opacity: 0.6,
                   child: Text(
-                    "© Qube Club",
+                    "${DateTime.now().year} © Qube Club",
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: Colors.white70, fontSize: 12),
                   ),

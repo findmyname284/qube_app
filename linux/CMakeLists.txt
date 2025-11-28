@@ -4,10 +4,10 @@ project(runner LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "qube_app")
+set(BINARY_NAME "qube")
 # The unique GTK application identifier for this application. See:
 # https://wiki.gnome.org/HowDoI/ChooseApplicationID
-set(APPLICATION_ID "kz.findmyname284.qube_app")
+set(APPLICATION_ID "kz.findmyname284.qube")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
@@ -74,6 +74,13 @@ set_target_properties(${BINARY_NAME}
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# Fix for flutter_secure_storage_linux compilation errors
+if(TARGET flutter_secure_storage_linux)
+    target_compile_options(flutter_secure_storage_linux PRIVATE 
+        -Wno-deprecated-literal-operator
+        -Wno-error=deprecated-literal-operator
+    )
+endif()
 
 # === Installation ===
 # By default, "installing" just makes a relocatable bundle in the build
